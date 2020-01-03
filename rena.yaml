@@ -1,0 +1,191 @@
+- define:
+    Rena:
+        function:
+            args: []
+            begin:
+                - define:
+                    matchString:
+                        function:
+                            args: [aString]
+                            begin:
+                                - function:
+                                    args: [match, index, attr]
+                                    begin:
+                                        - let:
+                                            vars:
+                                                ss: [substring, match, index, [+, index, [length, aString]]]
+                                            begin:
+                                                - if:
+                                                    cond: [eqv, ss, aString]
+                                                    then:
+                                                        qq:
+                                                            match: { uq: aString }
+                                                            lastIndex: { uq: [+, index, [length, aString]] }
+                                                            attr: { uq: attr }
+                                                    else:
+                                                        null
+
+                    concat:
+                        function:
+                            args: []
+                            rest: con
+                            begin:
+                                - function:
+                                    args: [match, index, attr]
+                                    begin:
+                                        - let:
+                                            name: loop
+                                            vars:
+                                                i: 0
+                                                indexNew: index
+                                                attrNew: attr
+                                            begin:
+                                                - if:
+                                                    cond: [eqv, i, [length, con]]
+                                                    then: 
+                                                        qq:
+                                                            match: { uq: [substring, match, index, indexNew] }
+                                                            lastIndex: { uq: indexNew }
+                                                            attr: { uq: attrNew }
+                                                    else:
+                                                        let:
+                                                            vars:
+                                                                result: [[con, i], match, indexNew, attrNew]
+                                                            begin:
+                                                                - if:
+                                                                    cond: [nullp, result]
+                                                                    then: null
+                                                                    else: [loop, [+, i, 1], [result, { q: lastIndex }], [result, { q: attr }]]
+
+                    choice:
+                        function:
+                            args: []
+                            rest: args
+                            begin:
+                                - function:
+                                    args: [match, index, attr]
+                                    begin:
+                                        - let:
+                                            name: loop
+                                            vars:
+                                                i: 0
+                                            begin:
+                                                - if:
+                                                    cond: [eqv, i, [length, args]]
+                                                    then: null
+                                                    else:
+                                                        let:
+                                                            vars:
+                                                                result: [[args, i], match, index, attr]
+                                                            begin:
+                                                                - if:
+                                                                    cond: [nullp, result]
+                                                                    then: [loop, [+, i, 1]]
+                                                                    else: result
+
+                    letrecY:
+                        function:
+                            args: []
+                            rest: args
+                            begin:
+                                - letrec:
+                                    vars:
+                                        g:
+                                            function:
+                                                args: [g]
+                                                begin:
+                                                    - [g, g]
+                                        h:
+                                            function:
+                                                args: [p]
+                                                begin:
+                                                    - let:
+                                                        name: loop
+                                                        vars:
+                                                            res: [values]
+                                                            i: 0
+                                                        begin:
+                                                            - if:
+                                                                cond: [eqv, i, [length, args]]
+                                                                then: res
+                                                                else:
+                                                                    letrec:
+                                                                        vars:
+                                                                            li:
+                                                                                function:
+                                                                                    args: [li]
+                                                                                    begin:
+                                                                                        -
+                                                                                            - concatValues
+                                                                                            - res
+                                                                                            -
+                                                                                                - values
+                                                                                                - function:
+                                                                                                    args: [match, index, attr]
+                                                                                                    begin:
+                                                                                                        - [[apply, li, [p, p]], match, index, attr]
+                                                                        begin:
+                                                                            - [loop, [li, [args, i]], [+, i, 1]]
+                                    begin:
+                                        - [[g, h], 0]
+
+                    lookaheadNot:
+                        function:
+                            args: [exp]
+                            begin:
+                                - function:
+                                    args: [match, index, attr]
+                                    begin:
+                                        - let:
+                                            vars:
+                                                result: [exp, match, index, attr]
+                                            begin:
+                                                - if:
+                                                    cond: [nullp, result]
+                                                    then: null
+                                                    else:
+                                                        qq:
+                                                            match: ""
+                                                            lastIndex: { uq: index }
+                                                            attr: { uq: attr }
+
+                    action:
+                        function:
+                            args: [exp, action]
+                            begin:
+                                - function:
+                                    args: [match, index, attr]
+                                    begin:
+                                        - let:
+                                            vars:
+                                                result: [exp, match, index, attr]
+                                            begin:
+                                                - if:
+                                                    cond: [nullp, result]
+                                                    then: null
+                                                    else:
+                                                        qq:
+                                                            match: { uq: [result, { q: match }] }
+                                                            lastIndex: { uq: [result, { q: lastIndex }] }
+                                                            attr:
+                                                                uq:
+                                                                    - action
+                                                                    - [result, { q: match }]
+                                                                    - [result, { q: attr }]
+                                                                    - attr
+
+                - message:
+                    extends: false
+                    messages:
+                        string: matchString
+                        concat: concat
+                        choice: choice
+                        letrec: letrecY
+                        lookaheadNot: lookaheadNot
+                        action: action
+                        opt:
+                            function:
+                                args: [exp]
+                                begin:
+                                    - [choice, exp, [matchString, { q: "" }]]
+
