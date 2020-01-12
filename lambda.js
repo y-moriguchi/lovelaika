@@ -288,7 +288,24 @@
                                         begin: [["print", { "q": match }], "x"]
                                     }
                                 });
-                            })))
+                            }))),
+                    r.concat(
+                        "[",
+                        r.attr([]),
+                        r.oneOrMore(
+                            r.action(expr, function(match, syn, inh) {
+                                return inh.concat([syn]);
+                            })),
+                        r.choice(
+                            r.concat(
+                                "|",
+                                r.action(expr, function(match, syn, inh) {
+                                    return makeList(inh, syn);
+                                })),
+                            r.action("", function(match, syn, inh) {
+                                return makeList(inh, substMacro(objFalse));
+                            })),
+                        "]")
                 );
             },
 
@@ -323,6 +340,18 @@
                 }));
 
         var allParser = r.concat(r.zeroOrMore(r.concat(macro, /\r\n|\r|\n/)), parser);
+        var cons, objFalse;
+
+        function makeList(anArray, objNil) {
+            function make(i) {
+                if(i < anArray.length) {
+                    return [[substMacro(cons), anArray[i]], make(i + 1)];
+                } else {
+                    return objNil;
+                }
+            }
+            return make(0);
+        }
 
         function currying(args, body, i) {
             if(i < args.length - 1) {
@@ -392,6 +421,8 @@
         defmacro("Car = ^p.pT");
         defmacro("Cdr = ^p.pF");
         defmacro("Isnil = ^x.x(^abc.F)T");
+        cons = macroEnv["Cons"];
+        objFalse = macroEnv["F"];
 
         return function(prog) {
             var result = allParser(prog, 0, []);
