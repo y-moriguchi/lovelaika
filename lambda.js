@@ -1,4 +1,8 @@
 (function(root) {
+    function isArray(obj) {
+        return Object.prototype.toString.call(obj) === '[object Array]';
+    }
+
     function Rena(option) {
         var optIgnore = option ? wrap(option.ignore) : null,
             optKeys = option ? option.keys : null,
@@ -244,7 +248,9 @@
         return me;
     }
 
-    function Lambda() {
+    function Lambda(option) {
+        var opt = option ? option : {};
+        var log = opt.log ? opt.log : console.log;
         var count = 1;
         var r = Rena({ ignore: /[ \t]+/ });
         var parser = r.letrec(
@@ -336,6 +342,9 @@
                 r.opt(":"),
                 "=",
                 r.action(parser, function(match, syn, inh) {
+                    if(macroEnv[inh]) {
+                        throw new Error("Macro has already defined: " + inh);
+                    }
                     macroEnv[inh] = syn;
                 }));
 
@@ -394,7 +403,7 @@
                     } else {
                         return body;
                     }
-                } else if(typeof body.length === "number") {
+                } else if(isArray(body)) {
                     for(i = 0; i < body.length; i++) {
                         result.push(subst(body[i]));
                     }
@@ -415,8 +424,6 @@
         defmacro("I = ^x.x");
         defmacro("T = ^xy.x");
         defmacro("F = ^xy.y");
-        defmacro("Z = ^f.(^g.gg)(^p.(^x.f(pp)x))");
-        defmacro("If = ^pxy.pxy");
         defmacro("Cons = ^cdf.fcd");
         defmacro("Car = ^p.pT");
         defmacro("Cdr = ^p.pF");
@@ -424,10 +431,58 @@
         cons = macroEnv["Cons"];
         objFalse = macroEnv["F"];
 
+        function evalJson(json) {
+            function evalJson1(json, env) {
+                var i,
+                    result;
+
+                if(isArray(json)) {
+                    if(json[0] === "print") {
+                        log(json[1].q);
+                        return null;
+                    } else {
+                        return (evalJson1(json[0], env))(evalJson1(json[1], env));
+                    }
+                } else if(json["function"]) {
+                    return closure(json["function"]["begin"], json["function"].args[0], env);
+                } else if(typeof json === "string") {
+                    return env(json);
+                } else {
+                    throw new Error("Internal Error");
+                }
+            }
+
+            function closure(body, name, env) {
+                return function(arg) {
+                    var i,
+                        result,
+                        envnew = createEnv(env, name, arg);
+
+                    for(i = 0; i < body.length; i++) {
+                        result = evalJson1(body[i], envnew);
+                    }
+                    if(!result) {
+                        throw new Error("Internal Error");
+                    }
+                    return result;
+                };
+            }
+
+            function createEnv(env, bound, arg) {
+                return function(name) {
+                    return name === bound ? arg : env(name);
+                };
+            }
+
+            return evalJson1(json, function(name) {
+                throw new Error("Variable is not bound: " + name);
+            });
+        }
+
         return function(prog) {
             var result = allParser(prog, 0, []);
             if(result) {
-                return result.attr;
+                return evalJson(result.attr);
             } else {
                 throw new Error("Syntax error");
             }
@@ -437,7 +492,7 @@
     if(typeof module !== "undefined" && module.exports) {
         module.exports = Lambda;
     } else {
-        root["Lambda"] = Lambda;
+        root["Tori"] = Lambda;
     }
 })(this);
 
