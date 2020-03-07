@@ -1,5 +1,7 @@
 (function(root) {
     function NFA() {
+        var patternFloat = "[\\+\\-]?([0-9]+(\\.[0-9]+)?|\\.[0-9]+)([eE][\\+\\-]?[0-9]+)?";
+
         function genState() {
             return {};
         }
@@ -49,6 +51,20 @@
 
         function isEmptySet(aSet) {
             return aSet.length === 0;
+        }
+
+        function isEqualSet(set1, set2) {
+            var i;
+
+            if(set1.length !== set2.length) {
+                return false;
+            }
+            for(i = 0; i < set1.length; i++) {
+                if(!containsSet(set2, set1[i])) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         function isIntersect(aSet, setToTest) {
@@ -112,6 +128,7 @@
             me = {
                 init: start,
                 accept: makeSet(end),
+                epsilon: function(state) { return makeSet(state); },
 
                 containsState: function(state) {
                     return state === start || state === end;
@@ -140,6 +157,21 @@
             me = {
                 init: args[0].init,
                 accept: args[args.length - 1].accept,
+                epsilon: function(state) {
+                    var result,
+                        i;
+
+                    for(i = 0; i < args.length; i++) {
+                        if(args[i].containsState(state)) {
+                            result = args[i].epsilon(state);
+                            if(isIntersect(args[i].accept, result) && i < args.length - 1) {
+                                result = addElement(result, args[i + 1].init);
+                            }
+                            return result;
+                        }
+                    }
+                    return makeSet();
+                },
 
                 containsState: function(state) {
                     var i;
@@ -159,9 +191,6 @@
                     for(i = 0; i < args.length; i++) {
                         if(args[i].containsState(state)) {
                             result = args[i].transit(state, transCh);
-                            if(isIntersect(args[i].accept, result) && i < args.length - 1) {
-                                result = addElement(result, args[i + 1].init);
-                            }
                             return result;
                         }
                     }
@@ -174,7 +203,7 @@
         function alterNFA(/* args */) {
             var args = Array.prototype.slice.call(arguments),
                 start = genState(),
-                accept = makeSet(),
+                end = genState(),
                 i,
                 me;
 
@@ -184,17 +213,38 @@
                 return args[0];
             }
 
-            for(i = 0; i < args.length; i++) {
-                accept = union(accept, args[i].accept);
-            }
             me = {
                 init: start,
-                accept: accept,
+                accept: makeSet(end),
+
+                epsilon: function(state) {
+                    var result,
+                        i;
+
+                    if(state === start) {
+                        result = makeSet();
+                        for(i = 0; i < args.length; i++) {
+                            result = addElement(result, args[i].init);
+                        }
+                        return result;
+                    } else {
+                        for(i = 0; i < args.length; i++) {
+                            if(args[i].containsState(state)) {
+                                result = args[i].epsilon(state);
+                                if(containsSet(args[i].accept, state)) {
+                                    result = addElement(result, end);
+                                }
+                                return result;
+                            }
+                        }
+                        return makeSet();
+                    }
+                },
 
                 containsState: function(state) {
                     var i;
 
-                    if(state === start) {
+                    if(state === start || state === end) {
                         return true;
                     }
                     for(i = 0; i < args.length; i++) {
@@ -209,58 +259,44 @@
                     var i,
                         result = makeSet();
 
-                    if(state === start) {
-                        for(i = 0; i < args.length; i++) {
-                            result = union(result, args[i].transit(args[i].init, transCh));
+                    for(i = 0; i < args.length; i++) {
+                        if(args[i].containsState(state)) {
+                            return args[i].transit(state, transCh);
                         }
-                        return result;
-                    } else {
-                        for(i = 0; i < args.length; i++) {
-                            if(args[i].containsState(state)) {
-                                return args[i].transit(state, transCh);
-                            }
-                        }
-                        return makeSet();
                     }
+                    return makeSet();
                 }
             };
             return me;
         }
 
         function repeatNFA(nfa, nullable, repeatable) {
-            var me;
+            var me,
+                start = genState(),
+                end = genState();
 
             me = {
-                init: nfa.init,
-                accept: nullable ? union(makeSet(nfa.init), nfa.accept) : nfa.accept,
+                init: start,
+                accept: makeSet(end),
+
+                epsilon: function(state) {
+                    var result;
+
+                    if(state === start) {
+                        return nullable ? makeSet(nfa.init, end) : makeSet(nfa.init);
+                    } else if(containsSet(nfa.accept, state)) {
+                        return union(nfa.epsilon(state), repeatable ? makeSet(end, nfa.init) : makeSet(end));
+                    } else {
+                        return nfa.epsilon(state);
+                    }
+                },
 
                 containsState: function(state) {
-                    return nfa.containsState(state);
+                    return state === start || state === end || nfa.containsState(state);
                 },
 
                 transit: function(state, transCh) {
-                    var result,
-                        i;
-
-                    if(state === nfa.init) {
-                        result = nfa.transit(nfa.init, transCh);
-                        if(nullable) {
-                            result = union(result, flatMapSet(nfa.accept, function(state) {
-                                return nfa.transit(state, transCh);
-                            }));
-                        }
-                    } else if(nfa.containsState(state)) {
-                        result = nfa.transit(state, transCh);
-                    } else {
-                        return makeSet();
-                    }
-                    if(isIntersect(nfa.accept, result)) {
-                        result = addElement(result, nfa.init);
-                        if(repeatable) {
-                            result = union(result, nfa.transit(nfa.init, transCh));
-                        }
-                    }
-                    return result;
+                    return nfa.transit(state, transCh);
                 }
             };
             return me;
@@ -273,12 +309,37 @@
                 i,
                 me;
 
+            function getInitialStates() {
+                var i,
+                    result = makeSet();
+
+                for(i = 0; i < args.length; i++) {
+                    result = addElement(result, args[i].init);
+                }
+                return addElement(result, start);
+            }
+
             for(i = 0; i < args.length; i++) {
                 accept = union(accept, args[i].accept);
             }
             me = {
                 init: start,
                 accept: accept,
+
+                epsilon: function(state) {
+                    var i;
+
+                    if(state === start) {
+                        return getInitialStates();
+                    } else {
+                        for(i = 0; i < args.length; i++) {
+                            if(args[i].containsState(state)) {
+                                return args[i].epsilon(state);
+                            }
+                        }
+                        return makeSet();
+                    }
+                },
 
                 containsState: function(state) {
                     var i;
@@ -336,7 +397,7 @@
                 var star = parseStar(index),
                     result;
 
-                if(/^[^\|\(\)]$/.test(regex.charAt(star.index))) {
+                if(/^[^\|\)]$/.test(regex.charAt(star.index))) {
                     result = parseConcat(star.index);
                     return {
                         index: result.index,
@@ -390,7 +451,7 @@
                         attr: singleCharNFA(function(ch) { return ch !== "\n" || ch !== "\r"; })
                     };
                 } else if(ch === "[") {
-                    result = parseCharSetList(index + 1);
+                    result = parseCharSet(index + 1);
                     return {
                         index: result.index,
                         attr: singleCharNFA(result.attr)
@@ -464,7 +525,7 @@
                     return {
                         index: char1.index,
                         attr: function(ch) {
-                            return chcode === char1.attr;
+                            return ch === char1.attr;
                         }
                     };
                 }
@@ -583,15 +644,58 @@
                 return foldSet(states, function(state, acc) { return acc || containsSet(nfa.accept, state); }, false);
             }
 
+            function transitEpsilon1(nfa, states) {
+                return union(states, flatMapSet(states, function(state) {
+                    return nfa.epsilon(state);
+                }));
+            }
+
+            function transitEpsilon(nfa, states) {
+                var result,
+                    resultNew = states;
+
+                do {
+                    result = resultNew;
+                    resultNew = transitEpsilon1(nfa, result);
+                } while(!isEqualSet(result, resultNew));
+                return result;
+            }
+
             function transitStates(nfa, states, ch) {
-                return flatMapSet(states, function(state) {
+                return transitEpsilon(nfa, flatMapSet(transitEpsilon(nfa, states), function(state) {
                     return nfa.transit(state, ch);
-                });
+                }));
             }
 
             function resetState(cond) {
                 resultString = "";
                 states = makeSet(parallels[cond].init);
+            }
+
+            function changeCond(condNew) {
+                if(condNew instanceof Push) {
+                    condStack.push(condNew.cond);
+                } else if(condNew instanceof Pop) {
+                    condStack.pop();
+                } else if(condNew !== void 0) {
+                    condStack.pop();
+                    condStack.push(condNew);
+                }
+
+                if(condStack.length === 0) {
+                    return true;
+                } else if(cond !== condStack[condStack.length - 1]) {
+                    cond = condStack[condStack.length - 1];
+                    if(rules[cond].trigger) {
+                        return changeCond(rules[cond].trigger());
+                    } else if(condNew instanceof Pop && rules[cond].popped) {
+                        return changeCond(rules[cond].popped());
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
             }
 
             function step(ch) {
@@ -613,23 +717,13 @@
 
                     for(i = 0; i < rules[cond].rules.length; i++) {
                         if(isAccept(rules[cond].rules[i].pattern, states)) {
-                            condNew = rules[cond].rules[i].action(resultString);
-                            if(condNew instanceof Push) {
-                                condStack.push(condNew.cond);
-                            } else if(condNew instanceof Pop) {
-                                condStack.pop();
-                            } else if(condNew !== void 0) {
-                                condStack.pop();
-                                condStack.push(condNew);
+                            if(rules[cond].rules[i].action) {
+                                condNew = rules[cond].rules[i].action(resultString);
+                            } else {
+                                condNew = void 0;
                             }
-
-                            if(condStack.length === 0) {
+                            if(changeCond(condNew)) {
                                 return;
-                            } else if(cond !== condStack[condStack.length - 1]) {
-                                cond = condStack[condStack.length - 1];
-                                if(rules[cond].trigger) {
-                                    rules[cond].trigger();
-                                }
                             }
 
                             resetState(cond);
@@ -640,12 +734,10 @@
                             }
                         }
                     }
-                    throw new Error("Internal Error");
-                } else if(isAccept(parallels[cond], statesNew)) {
+                    throw new Error("Syntax Error");
+                } else {
                     resultString += ch;
                     states = statesNew;
-                } else {
-                    throw new Error("Syntax Error");
                 }
             }
 
@@ -655,11 +747,13 @@
                     rules[i] = {};
                     rules[i].rules = flatArray(schema[i].rules);
                     rules[i].trigger = schema[i].trigger;
+                    rules[i].popped = schema[i].popped;
                 }
             }
 
             for(i in rules) {
                 if(rules.hasOwnProperty(i)) {
+                    nfas = [];
                     for(j = 0; j < rules[i].rules.length; j++) {
                         nfas = nfas.concat(rules[i].rules[j].pattern);
                     }
@@ -672,10 +766,20 @@
 
         return {
             rule: makeRule,
+            ruleReal: function(action) {
+                return makeRule(patternFloat, action);
+            },
             create: makeEngine,
             EOF: "\u0000",
             push: function(cond) { return new Push(cond); },
-            pop: function() { return new Pop(); }
+            pop: function() { return new Pop(); },
+            pushAction: function(cond) {
+                return function() { return new Push(cond); }
+            },
+            popAction: function() { return new Pop(); },
+            transitAction: function(cond) {
+                return function() { return cond; }
+            }
         };
     }
 
