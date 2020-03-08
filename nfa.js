@@ -1,6 +1,7 @@
 (function(root) {
     function NFA() {
         var patternFloat = "[\\+\\-]?([0-9]+(\\.[0-9]+)?|\\.[0-9]+)([eE][\\+\\-]?[0-9]+)?";
+        var EOF = "\u0000";
 
         function genState() {
             return {};
@@ -600,8 +601,8 @@
                             throw new Error("Invalid regex");
                         }
                         return {
-                            index: index + 5,
-                            attr: String.fromCharCode(parseInt(string.substring(index + 1, index + 5)))
+                            index: index + 6,
+                            attr: String.fromCharCode(parseInt(regex.substring(index + 2, index + 6), 16))
                         };
                     } else {
                         return ret1(ch2);
@@ -703,7 +704,7 @@
                     i,
                     condNew;
 
-                if(resultString === "\u0000") {
+                if(resultString.charAt(resultString.length - 1) === EOF) {
                     throw new Error("Already reached EOF");
                 } else if(condStack.length === 0) {
                     throw new Error("Condition stack has already been empty");
@@ -727,11 +728,7 @@
                             }
 
                             resetState(cond);
-                            if(ch !== "\u0000") {
-                                return step(ch);
-                            } else {
-                                return;
-                            }
+                            return step(ch);
                         }
                     }
                     throw new Error("Syntax Error");
@@ -761,7 +758,14 @@
                 }
             }
             resetState(initCond);
-            return step;
+            return {
+                put: step,
+                reset: function() {
+                    resetState(initCond);
+                    cond = initCond;
+                    condStack = [initCond];
+                }
+            };
         }
 
         return {
@@ -769,8 +773,11 @@
             ruleReal: function(action) {
                 return makeRule(patternFloat, action);
             },
+            ruleEOF: function(action) {
+                return makeRule(EOF, action);
+            },
             create: makeEngine,
-            EOF: "\u0000",
+            EOF: EOF,
             push: function(cond) { return new Push(cond); },
             pop: function() { return new Pop(); },
             pushAction: function(cond) {
