@@ -5,6 +5,10 @@
         return Object.prototype.toString.call(obj) === '[object Array]';
     }
 
+    function isObject(obj) {
+        return typeof obj === "object" && obj !== null;
+    }
+
     function flatArray(anArray) {
         var result = [],
             i;
@@ -19,6 +23,49 @@
         return result;
     }
 
+    function isEqual(obj1, obj2) {
+        var i,
+            result1,
+            result2;
+
+        if(isArray(obj1) && isArray(obj2)) {
+            if(obj1.length !== obj2.length) {
+                return false;
+            } else {
+                for(i = 0; i < obj1.length; i++) {
+                    if(!isEqual(obj1[i], obj2[i])) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+        } else if(isObject(obj1) && isObject(obj2)) {
+            result1 = [];
+            result2 = [];
+            for(i in obj1) {
+                if(obj1.hasOwnProperty(i)) {
+                    result1.push(i);
+                }
+            }
+            for(i in obj2) {
+                if(obj2.hasOwnProperty(i)) {
+                    result2.push(i);
+                }
+            }
+            if(!isEqual(result1, result2)) {
+                return false;
+            }
+            for(i = 0; i < result1.length; i++) {
+                if(!isEqual(obj1[result1[i]], obj2[result1[i]])) {
+                    return false;
+                }
+            }
+            return true;
+        } else {
+            return obj1 === obj2;
+        }
+    }
+
     function makeSet(/* args */) {
         var i,
             result = [];
@@ -29,11 +76,15 @@
         return result;
     }
 
+    function countSet(aSet) {
+        return aSet.length;
+    }
+
     function addElement(aSet, element) {
         var i;
 
         for(i = 0; i < aSet.length; i++) {
-            if(aSet[i] === element) {
+            if(isEqual(aSet[i], element)) {
                 return aSet;
             }
         }
@@ -45,7 +96,7 @@
             result = [];
 
         for(i = 0; i < aSet.length; i++) {
-            if(aSet[i] !== element) {
+            if(!isEqual(aSet[i], element)) {
                 result.push(aSet[i]);
             }
         }
@@ -53,7 +104,14 @@
     }
 
     function containsSet(aSet, element) {
-        return aSet.indexOf(element) >= 0;
+        var i;
+
+        for(i = 0; i < aSet.length; i++) {
+            if(isEqual(aSet[i], element)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function isEmptySet(aSet) {
@@ -102,7 +160,9 @@
         var i;
 
         for(i = 0; i < aSet.length; i++) {
-            each(aSet[i]);
+            if(each(aSet[i]) === true) {
+                return;
+            }
         }
     }
 
@@ -131,7 +191,8 @@
     }
 
     function LR0Item(grammar) {
-        var EPSILON = "#",
+        var EPSILON = "#e",
+            DUMMY = "#",
             first = {},
             follow = {},
             itemPool = {},
@@ -151,7 +212,7 @@
         function getFirst(symbol) {
             var result;
 
-            if(isTerminal(symbol)) {
+            if(isTerminal(symbol) || symbol === DUMMY) {
                 return makeSet(symbol);
             } else if(isNonterminal(symbol)) {
                 result = first[symbol];
@@ -177,7 +238,7 @@
         }
 
         function isFirstNullable(symbol) {
-            if(isTerminal(symbol)) {
+            if(isTerminal(symbol) || symbol === DUMMY) {
                 return false;
             } else if(isNonterminal(symbol)) {
                 return first[symbol] && containsSet(first[symbol], EPSILON);
@@ -228,7 +289,7 @@
                     return false;
                 } else {
                     for(j = 0; j < copied[i].length; j++) {
-                        if(copied[i][j] !== dest[i][j]) {
+                        if(!isEqual(copied[i][j], dest[i][j])) {
                             return false;
                         }
                     }
@@ -324,16 +385,21 @@
             var ruleId = ruleIndex + ":" + mark,
                 result;
 
-            result = itemPool[ruleId];
-            if(!itemPool[ruleId]) {
-                result = {
-                    ruleIndex: ruleIndex,
-                    rule: grammar.rules[ruleIndex],
-                    mark: mark
-                };
-                itemPool[ruleId] = result;
-            }
+            result = {
+                ruleIndex: ruleIndex,
+                rule: grammar.rules[ruleIndex],
+                mark: mark,
+                lookaheads: makeSet()
+            };
             return result;
+        }
+
+        function isKernelItem(item) {
+            return item.ruleIndex === 0 || item.mark > 0;
+        }
+
+        function isEndItem(item) {
+            return item.mark >= item.rule[1].length;
         }
 
         function getItemSymbol(item) {
@@ -342,6 +408,10 @@
             } else {
                 return null;
             }
+        }
+
+        function getBackItemSymbol(item) {
+            return item.rule[1][item.mark - 1]
         }
 
         function searchNonterminal(symbol) {
@@ -392,6 +462,18 @@
 
         function getClosureNumber() {
             return closurePool.length;
+        }
+
+        function searchItemFromClosurePool(itemId, item0) {
+            var result = null;
+
+            eachSet(closurePool[itemId], function(item) {
+                if(item.ruleIndex === item0.ruleIndex && item.mark === item0.mark) {
+                    result = item;
+                    return true;
+                }
+            });
+            return result;
         }
 
         function forEachClosures(fn) {
@@ -476,6 +558,144 @@
             };
         }
 
+        function makeItemLookahead(ruleIndex, mark, lookahead) {
+            var result;
+
+            result = {
+                ruleIndex: ruleIndex,
+                rule: grammar.rules[ruleIndex],
+                mark: mark,
+                lookahead: lookahead
+            };
+            return result;
+        }
+
+        function searchNonterminalLR1(symbol, item) {
+            var result = makeSet(),
+                firstList,
+                first,
+                i,
+                j;
+
+            for(i = 0; i < grammar.rules.length; i++) {
+                if(grammar.rules[i][0] === symbol) {
+                    firstList = item.rule[1].slice(item.mark + 1).concat([item.lookahead]);
+                    first = getFirstList(firstList);
+                    eachSet(first, function(symbol) {
+                        result = addElement(result, makeItemLookahead(i, 0, symbol));
+                    });
+                }
+            }
+            return result;
+        }
+
+        function computeClosure1LR1(itemSet) {
+            var result;
+
+            result = union(itemSet, flatMapSet(itemSet, function(item) {
+                var symbol = getItemSymbol(item);
+
+                if(isNonterminal(symbol)) {
+                    return searchNonterminalLR1(symbol, item);
+                } else {
+                    return makeSet();
+                }
+            }));
+            return result;
+        }
+
+        function computeClosureLR1(itemSet) {
+            var beforeItemSet,
+                afterItemSet = itemSet;
+
+            do {
+                beforeItemSet = afterItemSet;
+                afterItemSet = computeClosure1LR1(beforeItemSet);
+            } while(!isEqualSet(beforeItemSet, afterItemSet));
+            return afterItemSet;
+        }
+
+        function getPropagater(itemId) {
+            var closure = getClosureById(itemId);
+
+            function eachItemPropagate(item, fn) {
+                var toId,
+                    symbolItem,
+                    lr0item
+
+                if(lr0.fa[itemId]) {
+                    for(symbolItem in lr0.fa[itemId]) {
+                        if(lr0.fa[itemId].hasOwnProperty(symbolItem)) {
+                            toId = lr0.fa[itemId][symbolItem];
+                            eachSet(getClosureById(toId), function(item1) {
+                                if(isKernelItem(item1)) {
+                                    lr0item = searchItemFromClosurePool(itemId, item);
+                                    fn(toId, item, lr0item, item1);
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
+            function eachClosure(fn) {
+                eachSet(closure, function(item) {
+                    var closure1;
+
+                    if(isKernelItem(item)) {
+                        closure1 = computeClosureLR1(makeSet(makeItemLookahead(item.ruleIndex, item.mark, DUMMY)));
+                        eachSet(closure1, function(item) {
+                            eachItemPropagate(item, fn);
+                        });
+                    }
+                });
+            }
+
+            eachClosure(function(toId, lr1item, item1, item2) {
+                var nextItem;
+
+                if(lr1item.lookahead !== DUMMY && item2.ruleIndex === lr1item.ruleIndex && !isEndItem(lr1item)) {
+                    item2.lookaheads = addElement(item2.lookaheads, lr1item.lookahead);
+                }
+            });
+            return function() {
+                var dirty = false;
+
+                eachClosure(function(toId, lr1item, item1, item2) {
+                    var count;
+
+                    if(lr1item.lookahead === DUMMY && isKernelItem(lr1item)) {
+                        count = countSet(item2.lookaheads);
+                        item2.lookaheads = union(item2.lookaheads, item1.lookaheads);
+                        dirty = count < countSet(item2.lookaheads);
+                    }
+                });
+                return dirty;
+            }
+        }
+
+        function propagateLookahead() {
+            var closureInit = getClosureById(0),
+                propagaters = [],
+                dirty,
+                i;
+
+            eachSet(closureInit, function(item) {
+                if(isKernelItem(item)) {
+                    item.lookaheads = makeSet(END);
+                }
+            });
+            for(i = 0; i < getClosureNumber(); i++) {
+                propagaters[i] = getPropagater(i);
+            }
+            do {
+                dirty = false;
+                for(i = 0; i < getClosureNumber(); i++) {
+                    dirty = propagaters[i]() || dirty;
+                }
+            } while(dirty);
+        }
+
         function getAction(state, symbol) {
             var action1 = lrAction[state];
 
@@ -524,7 +744,7 @@
             action1[symbol] = ["accept"];
         }
 
-        function constructSLR() {
+        function constructLALR() {
             var closure,
                 i;
 
@@ -540,7 +760,7 @@
                             addActionShift(i, itemSymbol, lr0.fa[i][itemSymbol]);
                         }
                     } else if(item.ruleIndex !== 0) {
-                        follow1 = getFollow(item.rule[0]);
+                        follow1 = item.lookaheads;
                         eachSet(follow1, function(aSymbol) {
                             addActionReduce(i, aSymbol, item.ruleIndex);
                         });
@@ -602,13 +822,15 @@
         initFirst();
         initFollow();
         lr0 = computeItem(makeItem(0, 0));
-        constructSLR();
+        propagateLookahead();
+        constructLALR();
         //return {
         //    items: lr0,
         //    first: first,
         //    follow: follow,
         //    action: lrAction,
-        //    init: lrInit
+        //    init: lrInit,
+        //    closure: closurePool
         //};
         return createLRParser();
     }
