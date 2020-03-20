@@ -1,5 +1,5 @@
 (function(root) {
-    var END = "$";
+    var END = "#$";
 
     function isArray(obj) {
         return Object.prototype.toString.call(obj) === '[object Array]';
@@ -190,16 +190,20 @@
         return aSet.slice();
     }
 
-    function LR0Item(grammar) {
+    function GenerateParser(inputGrammar) {
         var EPSILON = "#e",
             DUMMY = "#",
+            START = "#S'",
+            grammar,
             first = {},
             follow = {},
             itemPool = {},
             closurePool = [],
             lr0,
             lrAction = [],
-            lrInit;
+            lrInit,
+            conflicts = [],
+            parser;
 
         function isNonterminal(symbol) {
             return grammar.nonterminals.indexOf(symbol) >= 0;
@@ -207,6 +211,30 @@
 
         function isTerminal(symbol) {
             return grammar.terminals.indexOf(symbol) >= 0;
+        }
+
+        function getOperator(ruleIndex) {
+            var rule = grammar.rules[ruleIndex];
+
+            function prec(op) {
+                return grammar.precedence && grammar.precedence[ruleIndex] ? grammar.precedence[ruleIndex] : op;
+            }
+
+            if(rule[1].length < 2 || rule[1].length > 3) {
+                return null;
+            } else if(rule[1].length === 2) {
+                if(isTerminal(rule[1][0]) && isNonterminal(rule[1][1])) {
+                    return prec(rule[1][0]);
+                } else if(isTerminal(rule[1][1]) && isNonterminal(rule[1][0])) {
+                    return prec(rule[1][1]);
+                }
+            } else if(rule[1].length === 3) {
+                if(isNonterminal(rule[1][0]) && isTerminal(rule[1][1]) && isNonterminal(rule[1][2])) {
+                    return prec(rule[1][1]);
+                } else {
+                    return null;
+                }
+            }
         }
 
         function getFirst(symbol) {
@@ -218,7 +246,7 @@
                 result = first[symbol];
                 return result ? result : makeSet();
             } else {
-                throw new Error("Internal Error");
+                throw new Error("Symbol " + symbol + " not defined");
             }
         }
 
@@ -243,7 +271,7 @@
             } else if(isNonterminal(symbol)) {
                 return first[symbol] && containsSet(first[symbol], EPSILON);
             } else {
-                throw new Error("Internal Error");
+                throw new Error("Symbol " + symbol + " not defined");
             }
         }
 
@@ -336,7 +364,7 @@
                 result = follow[symbol];
                 return result ? result : makeSet();
             } else {
-                throw new Error("Internal Error");
+                throw new Error(symbol + " is not nonterminal");
             }
         }
 
@@ -696,6 +724,39 @@
             } while(dirty);
         }
 
+        function getOperatorPrecedence(op) {
+            var i;
+
+            if(!grammar.operators) {
+                return null;
+            }
+            for(i = 0; i < grammar.operators.length; i++) {
+                if(grammar.operators[i].operators.indexOf(op) >= 0) {
+                    return i;
+                }
+            }
+            return null;
+        }
+
+        function compareOperator(op1, op2) {
+            var prec1 = getOperatorPrecedence(op1),
+                prec2 = getOperatorPrecedence(op2);
+
+            if(prec1 === null || prec2 === null) {
+                return null;
+            } else if(prec1 < prec2) {
+                return -1;
+            } else if(prec1 > prec2) {
+                return 1;
+            } else if(grammar.operators[prec1].assoc === "left") {
+                return -1;
+            } else if(grammar.operators[prec1].assoc === "right") {
+                return 1;
+            } else {
+                return null;
+            }
+        }
+
         function getAction(state, symbol) {
             var action1 = lrAction[state];
 
@@ -708,28 +769,68 @@
             }
         }
 
-        function addActionShift(state, symbol, stateTo) {
-            var action1 = lrAction[state];
+        function addActionShift(state, symbol, stateTo, ruleIndex) {
+            var rule = grammar.rules[ruleIndex],
+                action1 = lrAction[state],
+                op1,
+                op2,
+                prec;
 
             if(!action1) {
                 action1 = {};
                 lrAction[state] = action1;
             } else if(action1[symbol]) {
-                throw new Error("conflict");
+                if(action1[symbol][0] === "reduce") {
+                    op1 = getOperator(action1[symbol][2]);
+                    op2 = getOperator(ruleIndex);
+                    prec = compareOperator(op1, op2);
+                    if(prec === null) {
+                        conflicts.push({
+                            type: "shift-reduce",
+                            shiftState: stateTo,
+                            reduceRule: ruleIndex
+                        });
+                    } else if(prec < 0) {
+                        return;
+                    }
+                } else {
+                    throw new Error("Internal Error");
+                }
             }
-            action1[symbol] = ["shift", stateTo];
+            action1[symbol] = ["shift", stateTo, ruleIndex];
         }
 
         function addActionReduce(state, symbol, ruleIndex) {
-            var action1 = lrAction[state];
+            var rule = grammar.rules[ruleIndex],
+                action1 = lrAction[state];
 
             if(!action1) {
                 action1 = {};
                 lrAction[state] = action1;
             } else if(action1[symbol]) {
-                throw new Error("conflict");
+                if(action1[symbol][0] === "shift") {
+                    op1 = getOperator(ruleIndex);
+                    op2 = getOperator(action1[symbol][2]);
+                    prec = compareOperator(op1, op2);
+                    if(prec === null) {
+                        conflicts.push({
+                            type: "shift-reduce",
+                            shiftState: stateTo,
+                            reduceRule: ruleIndex
+                        });
+                        return;  // shift
+                    } else if(prec < 0) {
+                        return;
+                    }
+                } else {
+                    conflicts.push({
+                        type: "reduce-reduce",
+                        reduceRule1: action1[symbol][1],
+                        reduceRule2: ruleIndex
+                    });
+                }
             }
-            action1[symbol] = ["reduce", ruleIndex];
+            action1[symbol] = ["reduce", ruleIndex, ruleIndex];
         }
 
         function addActionAccept(state, symbol) {
@@ -757,7 +858,7 @@
                     if(item.mark < item.rule[1].length) {
                         itemSymbol = getItemSymbol(item);
                         if(isTerminal(itemSymbol)) {
-                            addActionShift(i, itemSymbol, lr0.fa[i][itemSymbol]);
+                            addActionShift(i, itemSymbol, lr0.fa[i][itemSymbol], item.ruleIndex);
                         }
                     } else if(item.ruleIndex !== 0) {
                         follow1 = item.lookaheads;
@@ -819,6 +920,31 @@
             return step;
         }
 
+        function formatGrammar(inputGrammar) {
+            var result = {},
+                i;
+
+            result.terminals = inputGrammar.terminals;
+            result.nonterminals = [START].concat(inputGrammar.nonterminals);
+            result.rules = [[START, [inputGrammar.start]]];
+            result.precedence = [];
+            for(i = 0; i < inputGrammar.rules.length; i++) {
+                if(isArray(inputGrammar.rules[i])) {
+                    result.rules[i + 1] = inputGrammar.rules[i];
+                } else if(isObject(inputGrammar.rules[i])) {
+                    result.rules[i + 1] = inputGrammar.rules[i].rule.concat([inputGrammar.rules[i].action]);
+                    if(inputGrammar.rules[i].precedence) {
+                        result.precedence[i + 1] = inputGrammar.rules[i].precedence;
+                    }
+                } else {
+                    throw new Error("Invalid rule: " + inputGrammar.rules[i]);
+                }
+            }
+            result.operators = inputGrammar.operators;
+            return result;
+        }
+
+        grammar = formatGrammar(inputGrammar);
         initFirst();
         initFollow();
         lr0 = computeItem(makeItem(0, 0));
@@ -832,17 +958,21 @@
         //    init: lrInit,
         //    closure: closurePool
         //};
-        return createLRParser();
+        parser = createLRParser();
+        return {
+            parser: parser,
+            conflicts: conflicts
+        };
     }
 
     if(typeof module !== "undefined" && module.exports) {
         module.exports = {
-            parser: LR0Item,
+            parser: GenerateParser,
             END: END
         };
     } else {
         root["LR"] = {
-            parser: LR0Item,
+            parser: GenerateParser,
             END: END
         };
     }
