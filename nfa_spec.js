@@ -237,7 +237,7 @@ describe("NFA", function () {
                 "object": {
                     "rules": [
                         NFA.rule("\"[^\"]*\"", NFA.transitAction("object2")),
-                        NFA.rule("}", NFA.popAction),
+                        NFA.rule("}", NFA.popAction()),
                         NFA.rule("\\s+")
                     ]
                 },
@@ -257,7 +257,7 @@ describe("NFA", function () {
                 "object4": {
                     "rules": [
                         NFA.rule(",", NFA.transitAction("object")),
-                        NFA.rule("}", NFA.popAction),
+                        NFA.rule("}", NFA.popAction()),
                         NFA.rule("\\s+")
                     ]
                 },
@@ -265,7 +265,7 @@ describe("NFA", function () {
                 "array": {
                     "rules": [
                         createBase("array2"),
-                        NFA.rule("\\]", NFA.popAction),
+                        NFA.rule("\\]", NFA.popAction()),
                     ],
                     "popped": NFA.transitAction("array2")
                 },
@@ -273,7 +273,7 @@ describe("NFA", function () {
                 "array2": {
                     "rules": [
                         NFA.rule(",", NFA.transitAction("array")),
-                        NFA.rule("]", NFA.popAction),
+                        NFA.rule("]", NFA.popAction()),
                         NFA.rule("\\s+")
                     ]
                 }
@@ -294,6 +294,65 @@ describe("NFA", function () {
                 fail();
             } catch(e) { /* ok */ }
             expect("ok").toBe("ok");
+        });
+
+        it("Array Expression", function() {
+            var rules,
+                result,
+                engine;
+
+            function createBase(cond) {
+                function addlist(list, attr) {
+                    if(list === NFA.STACKTOP) {
+                        result = attr;
+                        return attr;
+                    } else {
+                        return list.concat([attr]);
+                    }
+                }
+
+                return [
+                    NFA.rule("\\(", NFA.pushAction("list", [])),
+                    NFA.ruleReal(function(str, attr) { return NFA.transit(cond, addlist(attr, parseFloat(str))); }),
+                    NFA.rule("[^\\s\\(\\)]+", function(str, attr) { return NFA.transit(cond, addlist(attr, str)); }),
+                    NFA.rule("[\\s]+")
+                ];
+            }
+
+            rules = {
+                "init": {
+                    "rules": createBase("end"),
+                    "popped": function(stacktop, popped) {
+                        result = popped;
+                        return NFA.transit("end", popped);
+                    }
+                },
+
+                "list": {
+                    "rules": [
+                        createBase("list"),
+                        NFA.rule("\\)", NFA.popAction())
+                    ],
+                    "popped": function(stacktop, popped) {
+                        return NFA.transit("list", stacktop.concat([popped]));
+                    }
+                },
+
+                "end": {
+                    "rules": [ NFA.ruleEOF() ]
+                }
+            };
+
+            engine = NFA.create(rules, "init");
+            inputString(engine, "(1 2 3)");
+            expect(result).toEqual([1, 2, 3]);
+            engine.reset();
+            inputString(engine, "(aaaa 2 (1 2 bbbb))");
+            expect(result).toEqual(["aaaa", 2, [1, 2, "bbbb"]]);
+            engine.reset();
+            inputString(engine, "aaaa");
+            expect(result).toEqual("aaaa");
+            engine.reset();
         });
     });
 });

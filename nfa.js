@@ -1,7 +1,8 @@
 (function(root) {
     function NFA() {
         var patternFloat = "[\\+\\-]?([0-9]+(\\.[0-9]+)?|\\.[0-9]+)([eE][\\+\\-]?[0-9]+)?";
-        var EOF = "\u0000";
+        var EOF = { "$": "$" };
+        var STACKTOP = {};
 
         function genState() {
             return {};
@@ -124,8 +125,15 @@
             var me,
                 start = genState(),
                 end = genState(),
-                chFn = typeof ch === "string" ? function(testCh) { return testCh === ch; } : ch;
+                chFn;
 
+            if(typeof ch === "string") {
+                chFn = function(testCh) { return testCh === ch; };
+            } else {
+                chFn = function(testCh) {
+                    return typeof testCh === "string" && ch(testCh)
+                };
+            }
             me = {
                 init: start,
                 accept: makeSet(end),
@@ -137,6 +145,31 @@
 
                 transit: function(state, transCh) {
                     if(state === start && chFn(transCh)) {
+                        return makeSet(end);
+                    } else {
+                        return makeSet();
+                    }
+                }
+            };
+            return me;
+        }
+
+        function eofNFA() {
+            var me,
+                start = genState(),
+                end = genState();
+
+            me = {
+                init: start,
+                accept: makeSet(end),
+                epsilon: function(state) { return makeSet(state); },
+
+                containsState: function(state) {
+                    return state === start || state === end;
+                },
+
+                transit: function(state, transCh) {
+                    if(transCh === EOF) {
                         return makeSet(end);
                     } else {
                         return makeSet();
@@ -379,6 +412,16 @@
         }
 
         function parseRegex(regex) {
+            function parseStart() {
+                if(regex === EOF) {
+                    return {
+                        attr: eofNFA()
+                    };
+                } else {
+                    return parseAlter(0);
+                }
+            }
+
             function parseAlter(index) {
                 var concat = parseConcat(index),
                     result;
@@ -458,7 +501,10 @@
                         attr: singleCharNFA(result.attr)
                     };
                 } else if(!!(result = parsePredefinedSet(index))) {
-                    return result;
+                    return {
+                        index: result.index,
+                        attr: singleCharNFA(result.attr)
+                    };
                 } else {
                     result = parseOneChar(index);
                     return {
@@ -504,11 +550,15 @@
             }
 
             function parseCharSet1(index) {
-                var char1,
+                var predefined,
+                    char1,
                     char2,
                     chcode1,
                     chcode2;
 
+                if(!!(predefined = parsePredefinedSet(index))) {
+                    return predefined;
+                }
                 char1 = parseOneChar(index);
                 if(regex.charAt(char1.index) === "-") {
                     char2 = parseOneChar(char1.index + 1);
@@ -538,7 +588,7 @@
                 function ret1(fn) {
                     return {
                         index: index + 2,
-                        attr: singleCharNFA(fn)
+                        attr: fn
                     };
                 }
 
@@ -614,7 +664,7 @@
                     };
                 }
             }
-            return parseAlter(0).attr;
+            return parseStart().attr;
         }
 
         function makeRule(pattern, action) {
@@ -624,11 +674,23 @@
             };
         }
 
-        function Push(cond) {
+        function Push(cond, attr) {
             this.cond = cond;
+            this.attr = attr;
         }
 
-        function Pop() {}
+        function Pop(/* args */) {
+            if(isArray(arguments[0])) {
+                this.conds = arguments[0].slice();
+            } else {
+                this.conds = Array.prototype.slice.call(arguments);
+            }
+        }
+
+        function Transit(cond, attr) {
+            this.cond = cond;
+            this.attr = attr;
+        }
 
         function makeEngine(schema, initCond) {
             var nfas = [],
@@ -636,6 +698,7 @@
                 states,
                 cond = initCond,
                 condStack = [initCond],
+                attrStack = [STACKTOP],
                 resultString = "",
                 rules,
                 i,
@@ -674,28 +737,42 @@
             }
 
             function changeCond(condNew) {
+                var popped,
+                    attrTop;
+
                 if(condNew instanceof Push) {
                     condStack.push(condNew.cond);
+                    attrStack.push(condNew.attr);
                 } else if(condNew instanceof Pop) {
                     condStack.pop();
-                } else if(condNew !== void 0) {
+                    condStack = condStack.concat(condNew.conds);
+                    popped = attrStack.pop();
+                } else if(condNew instanceof Transit) {
+                    condStack.pop();
+                    attrStack.pop();
+                    condStack.push(condNew.cond);
+                    attrStack.push(condNew.attr);
+                } else if(typeof condNew === "string") {
                     condStack.pop();
                     condStack.push(condNew);
+                } else if(condNew !== void 0) {
+                    throw new Error("Invalid action");
                 }
 
                 if(condStack.length === 0) {
                     return true;
-                } else if(cond !== condStack[condStack.length - 1]) {
+                } else {
+                    attrTop = attrStack[attrStack.length - 1];
                     cond = condStack[condStack.length - 1];
-                    if(rules[cond].trigger) {
-                        return changeCond(rules[cond].trigger());
+                    if(!rules[cond]) {
+                        throw new Error("condition " + cond + " is not exist");
+                    } else if(rules[cond].trigger) {
+                        return changeCond(rules[cond].trigger(attrTop));
                     } else if(condNew instanceof Pop && rules[cond].popped) {
-                        return changeCond(rules[cond].popped());
+                        return changeCond(rules[cond].popped(attrTop, popped));
                     } else {
                         return false;
                     }
-                } else {
-                    return false;
                 }
             }
 
@@ -712,21 +789,20 @@
 
                 statesNew = transitStates(parallels[cond], states, ch);
                 if(isEmptySet(statesNew)) {
-                    if(resultString === "") {
+                    if(ch !== EOF && resultString === "") {
                         throw new Error("Syntax Error");
                     }
 
                     for(i = 0; i < rules[cond].rules.length; i++) {
                         if(isAccept(rules[cond].rules[i].pattern, states)) {
                             if(rules[cond].rules[i].action) {
-                                condNew = rules[cond].rules[i].action(resultString);
+                                condNew = rules[cond].rules[i].action(resultString, attrStack[attrStack.length - 1]);
                             } else {
                                 condNew = void 0;
                             }
                             if(changeCond(condNew)) {
                                 return;
                             }
-
                             resetState(cond);
                             return step(ch);
                         }
@@ -758,34 +834,64 @@
                 }
             }
             resetState(initCond);
+
             return {
                 put: step,
+                getCondition: function() {
+                    return condStack[condStack.length - 1];
+                },
+
                 reset: function() {
                     resetState(initCond);
                     cond = initCond;
                     condStack = [initCond];
+                    attrStack = [STACKTOP];
                 }
             };
         }
 
         return {
+            EOF: EOF,
+            STACKTOP: STACKTOP,
             rule: makeRule,
+
             ruleReal: function(action) {
                 return makeRule(patternFloat, action);
             },
+
             ruleEOF: function(action) {
                 return makeRule(EOF, action);
             },
+
             create: makeEngine,
-            EOF: EOF,
-            push: function(cond) { return new Push(cond); },
-            pop: function() { return new Pop(); },
-            pushAction: function(cond) {
-                return function() { return new Push(cond); }
+            push: function(cond, attr) {
+                return new Push(cond, attr);
             },
-            popAction: function() { return new Pop(); },
+
+            pop: function() {
+                return new Pop();
+            },
+
+            transit: function(cond, attr) {
+                return new Transit(cond, attr);
+            },
+
+            pushAction: function(cond, attr) {
+                return function() {
+                    return new Push(cond, attr);
+                };
+            },
+
+            popAction: function() {
+                return function() {
+                    return new Pop();
+                }
+            },
+
             transitAction: function(cond) {
-                return function() { return cond; }
+                return function() {
+                    return cond;
+                }
             }
         };
     }
