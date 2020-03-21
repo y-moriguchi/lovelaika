@@ -3,6 +3,8 @@
         var patternFloat = "[\\+\\-]?([0-9]+(\\.[0-9]+)?|\\.[0-9]+)([eE][\\+\\-]?[0-9]+)?";
         var EOF = { "$": "$" };
         var STACKTOP = {};
+        var ACCEPT = { "acc": "" };
+        var MAXEOFCALL = 100;
 
         function genState() {
             return {};
@@ -169,7 +171,7 @@
                 },
 
                 transit: function(state, transCh) {
-                    if(transCh === EOF) {
+                    if(state === start && transCh === EOF) {
                         return makeSet(end);
                     } else {
                         return makeSet();
@@ -491,8 +493,13 @@
                     };
                 } else if(ch === ".") {
                     return {
-                        index: result.index + 1,
-                        attr: singleCharNFA(function(ch) { return ch !== "\n" || ch !== "\r"; })
+                        index: index + 1,
+                        attr: singleCharNFA(function(ch) { return ch !== "\n" && ch !== "\r"; })
+                    };
+                } else if(ch === "$") {
+                    return {
+                        index: index + 1,
+                        attr: eofNFA()
                     };
                 } else if(ch === "[") {
                     result = parseCharSet(index + 1);
@@ -692,6 +699,9 @@
             this.attr = attr;
         }
 
+        function Accept() {
+        }
+
         function makeEngine(schema, initCond) {
             var nfas = [],
                 parallels = {},
@@ -699,6 +709,8 @@
                 cond = initCond,
                 condStack = [initCond],
                 attrStack = [STACKTOP],
+                accepted = false,
+                eofcall = 0,
                 resultString = "",
                 rules,
                 i,
@@ -752,7 +764,9 @@
                     attrStack.pop();
                     condStack.push(condNew.cond);
                     attrStack.push(condNew.attr);
-                } else if(typeof condNew === "string") {
+                } else if(condNew instanceof Accept) {
+                    return true;
+                } else if(typeof condNew === "string" || condNew === ACCEPT) {
                     condStack.pop();
                     condStack.push(condNew);
                 } else if(condNew !== void 0) {
@@ -764,7 +778,9 @@
                 } else {
                     attrTop = attrStack[attrStack.length - 1];
                     cond = condStack[condStack.length - 1];
-                    if(!rules[cond]) {
+                    if(cond === ACCEPT) {
+                        return true;
+                    } else if(!rules[cond]) {
                         throw new Error("condition " + cond + " is not exist");
                     } else if(rules[cond].trigger) {
                         return changeCond(rules[cond].trigger(attrTop));
@@ -781,10 +797,10 @@
                     i,
                     condNew;
 
-                if(resultString.charAt(resultString.length - 1) === EOF) {
-                    throw new Error("Already reached EOF");
-                } else if(condStack.length === 0) {
+                if(condStack.length === 0) {
                     throw new Error("Condition stack has already been empty");
+                } else if(accepted) {
+                    throw new Error("Already accepted");
                 }
 
                 statesNew = transitStates(parallels[cond], states, ch);
@@ -801,6 +817,7 @@
                                 condNew = void 0;
                             }
                             if(changeCond(condNew)) {
+                                accepted = true;
                                 return;
                             }
                             resetState(cond);
@@ -809,8 +826,15 @@
                     }
                     throw new Error("Syntax Error");
                 } else {
-                    resultString += ch;
                     states = statesNew;
+                    if(ch !== EOF) {
+                        resultString += ch;
+                    } else if(eofcall >= MAXEOFCALL) {
+                        throw new Error("Maybe missing accept state");
+                    } else {
+                        eofcall++;
+                        step(ch);
+                    }
                 }
             }
 
@@ -846,6 +870,8 @@
                     cond = initCond;
                     condStack = [initCond];
                     attrStack = [STACKTOP];
+                    accepted = false;
+                    eofcall = 0;
                 }
             };
         }
@@ -853,6 +879,7 @@
         return {
             EOF: EOF,
             STACKTOP: STACKTOP,
+            ACCEPT: ACCEPT,
             rule: makeRule,
 
             ruleReal: function(action) {
@@ -885,13 +912,19 @@
             popAction: function() {
                 return function() {
                     return new Pop();
-                }
+                };
             },
 
             transitAction: function(cond) {
                 return function() {
                     return cond;
-                }
+                };
+            },
+
+            acceptAction: function() {
+                return function() {
+                    return new Accept();
+                };
             }
         };
     }

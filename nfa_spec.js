@@ -18,7 +18,7 @@ describe("NFA", function () {
 
         rules = {
             "init": {
-                "rules": [NFA.rule(pattern, function(str) { ok = str; }), NFA.ruleEOF()]
+                "rules": [NFA.rule(pattern, function(str) { ok = str; }), NFA.ruleEOF(NFA.acceptAction())]
             }
         };
         engine = NFA.create(rules, "init");
@@ -35,7 +35,7 @@ describe("NFA", function () {
         try {
             rules = {
                 "init": {
-                    "rules": [NFA.rule(pattern, function(str) { ok = str; }), NFA.ruleEOF()]
+                    "rules": [NFA.rule(pattern, function(str) { ok = str; }), NFA.ruleEOF(NFA.popAction())]
                 }
             };
             engine = NFA.create(rules, "init");
@@ -54,7 +54,7 @@ describe("NFA", function () {
 
         rules = {
             "init": {
-                "rules": [NFA.ruleReal(function(str) { ok = str; }), NFA.ruleEOF()]
+                "rules": [NFA.ruleReal(function(str) { ok = str; }), NFA.ruleEOF(NFA.acceptAction())]
             }
         };
         engine = NFA.create(rules, "init");
@@ -71,7 +71,7 @@ describe("NFA", function () {
         try {
             rules = {
                 "init": {
-                    "rules": [NFA.ruleReal(function(str) { ok = str; }), NFA.ruleEOF()]
+                    "rules": [NFA.ruleReal(function(str) { ok = str; }), NFA.ruleEOF(NFA.acceptAction())]
                 }
             };
             engine = NFA.create(rules, "init");
@@ -88,6 +88,7 @@ describe("NFA", function () {
     describe("testing regex", function() {
         it("one char", function() {
             regexMatch("a", "a");
+            regexNomatch("a", "x");
             regexMatch("\\n", "\n");
             regexMatch("\\r", "\r");
             regexMatch("\\t", "\t");
@@ -95,6 +96,9 @@ describe("NFA", function () {
             regexMatch("\\f", "\f");
             regexMatch("\\v", "\v");
             regexMatch("\\u0020", " ");
+            regexMatch(".", "a");
+            regexNomatch(".", "\n");
+            regexNomatch(".", "\r");
         });
 
         it("charcter set", function() {
@@ -230,7 +234,7 @@ describe("NFA", function () {
                 "init": {
                     "rules": [
                         createBase("init"),
-                        NFA.ruleEOF()
+                        NFA.ruleEOF(NFA.transitAction(NFA.ACCEPT))
                     ]
                 },
 
@@ -339,7 +343,7 @@ describe("NFA", function () {
                 },
 
                 "end": {
-                    "rules": [ NFA.ruleEOF() ]
+                    "rules": [ NFA.rule("$", NFA.acceptAction()) ]
                 }
             };
 
