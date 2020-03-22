@@ -134,6 +134,28 @@
         }
     }
 
+    function deepCopy(obj) {
+        var i,
+            res;
+
+        if(isArray(obj)) {
+            res = [];
+            for(i = 0; i < obj.length; i++) {
+                res[i] = deepCopy(obj[i]);
+            }
+        } else if(isObject(obj)) {
+            res = {};
+            for(i in obj) {
+                if(obj.hasOwnProperty(i)) {
+                    res[i] = deepCopy(obj[i]);
+                }
+            }
+        } else {
+            res = obj;
+        }
+        return res;
+    }
+
     function makeSet(/* args */) {
         var i,
             result = [];
@@ -495,7 +517,7 @@
         }
 
         function isKernelItem(item) {
-            return item.ruleIndex === 0 || item.mark > 0;
+            return item.ruleIndex === 0 || item.rule[1].length === 0 || item.mark > 0;
         }
 
         function isEndItem(item) {
@@ -562,6 +584,10 @@
 
         function getClosureNumber() {
             return closurePool.length;
+        }
+
+        function reconstructClosurePool() {
+            closurePool = deepCopy(closurePool);
         }
 
         function searchItemFromClosurePool(itemId, item0) {
@@ -721,7 +747,7 @@
             function eachItemPropagate(item, fn) {
                 var toId,
                     symbolItem,
-                    lr0item
+                    lr0item;
 
                 if(lr0.fa[itemId]) {
                     for(symbolItem in lr0.fa[itemId]) {
@@ -739,11 +765,11 @@
             }
 
             function eachClosure(fn) {
-                eachSet(closure, function(item) {
+                eachSet(closure, function(item0) {
                     var closure1;
 
-                    if(isKernelItem(item)) {
-                        closure1 = computeClosureLR1(makeSet(makeItemLookahead(item.ruleIndex, item.mark, DUMMY)));
+                    if(isKernelItem(item0)) {
+                        closure1 = computeClosureLR1(makeSet(makeItemLookahead(item0.ruleIndex, item0.mark, DUMMY)));
                         eachSet(closure1, function(item) {
                             eachItemPropagate(item, fn);
                         });
@@ -754,7 +780,7 @@
             eachClosure(function(toId, lr1item, item1, item2) {
                 var nextItem;
 
-                if(lr1item.lookahead !== DUMMY && item2.ruleIndex === lr1item.ruleIndex && !isEndItem(lr1item)) {
+                if(lr1item.lookahead !== DUMMY && item2.ruleIndex === lr1item.ruleIndex && getItemSymbol(lr1item) === getBackItemSymbol(item2)) {
                     item2.lookaheads = addElement(item2.lookaheads, lr1item.lookahead);
                 }
             });
@@ -860,13 +886,13 @@
                         conflicts.push({
                             type: "shift-reduce",
                             shiftState: stateTo,
-                            reduceRule: ruleIndex
+                            reduceRule: action1[symbol][2]
                         });
                     } else if(prec < 0) {
                         return;
                     }
                 } else {
-                    throw new Error("Internal Error");
+                    return;
                 }
             }
             action1[symbol] = ["shift", stateTo, ruleIndex];
@@ -915,6 +941,36 @@
                 throw new Error("conflict");
             }
             action1[symbol] = ["accept"];
+        }
+
+        function constructSLR() {
+            var closure,
+                i;
+
+            for(i = 0; i < getClosureNumber(); i++) {
+                closure = getClosureById(i);
+                eachSet(closure, function(item) {
+                    var itemSymbol,
+                        follow1;
+
+                    if(item.mark < item.rule[1].length) {
+                        itemSymbol = getItemSymbol(item);
+                        if(isTerminal(itemSymbol)) {
+                            addActionShift(i, itemSymbol, lr0.fa[i][itemSymbol]);
+                        }
+                    } else if(item.ruleIndex !== 0) {
+                        follow1 = getFollow(item.rule[0]);
+                        eachSet(follow1, function(aSymbol) {
+                            addActionReduce(i, aSymbol, item.ruleIndex);
+                        });
+                    } else if(item.ruleIndex === 0) {
+                        addActionAccept(i, END);
+                    } else {
+                        throw new Error("Internal Error");
+                    }
+                });
+            }
+            lrInit = lr0.startId;
         }
 
         function constructLALR() {
@@ -1057,8 +1113,9 @@
         initFirst();
         initFollow();
         lr0 = computeItem(makeItem(0, 0));
-        propagateLookahead();
-        constructLALR();
+        //reconstructClosurePool();
+        //propagateLookahead();
+        constructSLR();
         //return {
         //    items: lr0,
         //    first: first,
