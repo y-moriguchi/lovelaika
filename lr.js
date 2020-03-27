@@ -517,7 +517,7 @@
         }
 
         function isKernelItem(item) {
-            return item.ruleIndex === 0 || item.rule[1].length === 0 || item.mark > 0;
+            return item.ruleIndex === 0 || item.mark > 0;
         }
 
         function isEndItem(item) {
