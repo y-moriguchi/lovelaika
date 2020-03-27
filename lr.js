@@ -764,13 +764,23 @@
                 }
             }
 
-            function eachClosure(fn) {
+            function eachClosure(fn, propagate) {
                 eachSet(closure, function(item0) {
                     var closure1;
 
                     if(isKernelItem(item0)) {
                         closure1 = computeClosureLR1(makeSet(makeItemLookahead(item0.ruleIndex, item0.mark, DUMMY)));
                         eachSet(closure1, function(item) {
+                            if(propagate) {
+                                eachSet(closure, function(itemPropagate) {
+                                    var lr0item;
+
+                                    if(!isKernelItem(itemPropagate) && itemPropagate.rule[0] === getItemSymbol(item)) {
+                                        lr0item = searchItemFromClosurePool(itemId, item);
+                                        itemPropagate.lookaheads = union(itemPropagate.lookaheads, lr0item.lookaheads);
+                                    }
+                                });
+                            }
                             eachItemPropagate(item, fn);
                         });
                     }
@@ -790,12 +800,12 @@
                 eachClosure(function(toId, lr1item, item1, item2) {
                     var count;
 
-                    if(lr1item.lookahead === DUMMY && isKernelItem(lr1item)) {
+                    if(lr1item.lookahead === DUMMY && item2.ruleIndex === lr1item.ruleIndex && getItemSymbol(lr1item) === getBackItemSymbol(item2)) {
                         count = countSet(item2.lookaheads);
                         item2.lookaheads = union(item2.lookaheads, item1.lookaheads);
                         dirty = count < countSet(item2.lookaheads);
                     }
-                });
+                }, true);
                 return dirty;
             }
         }
@@ -1113,9 +1123,10 @@
         initFirst();
         initFollow();
         lr0 = computeItem(makeItem(0, 0));
-        //reconstructClosurePool();
-        //propagateLookahead();
-        constructSLR();
+        reconstructClosurePool();
+        propagateLookahead();
+        constructLALR();
+        console.log(JSON.stringify(closurePool, null, 4));
         //return {
         //    items: lr0,
         //    first: first,
