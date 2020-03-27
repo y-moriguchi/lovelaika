@@ -1126,7 +1126,6 @@
         reconstructClosurePool();
         propagateLookahead();
         constructLALR();
-        console.log(JSON.stringify(closurePool, null, 4));
         //return {
         //    items: lr0,
         //    first: first,
