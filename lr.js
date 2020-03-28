@@ -288,6 +288,7 @@
         var EPSILON = "#e",
             DUMMY = "#d",
             START = "#S'",
+            DEFAULT_TOKEN = "#default",
             grammar,
             first = {},
             follow = {},
@@ -923,7 +924,7 @@
                     if(prec === null) {
                         conflicts.push({
                             type: "shift-reduce",
-                            shiftState: stateTo,
+                            shiftState: state,
                             reduceRule: ruleIndex
                         });
                         return;  // shift
@@ -1013,6 +1014,42 @@
             lrInit = lr0.startId;
         }
 
+        function modifyLALR() {
+            var i,
+                reduceRuleIndex;
+
+            function getSameReduce(ruleNo) {
+                var i,
+                    reduceRuleIndex = null;
+
+                for(i in lrAction[ruleNo]) {
+                    if(lrAction[ruleNo].hasOwnProperty(i)) {
+                        if(lrAction[ruleNo][i][0] === "reduce") {
+                            if(reduceRuleIndex === null) {
+                                reduceRuleIndex = lrAction[ruleNo][i][1];
+                            } else if(reduceRuleIndex !== lrAction[ruleNo][i][1]) {
+                                return null;
+                            }
+                        } else {
+                            return null;
+                        }
+                    }
+                }
+                return reduceRuleIndex;
+            }
+
+            for(i = 0; i < lrAction.length; i++) {
+                reduceRuleIndex = getSameReduce(i);
+                if(reduceRuleIndex !== null) {
+                    lrAction[i][DEFAULT_TOKEN] = [
+                        "reduce",
+                        reduceRuleIndex,
+                        reduceRuleIndex
+                    ];
+                }
+            }
+        }
+
         function createLRParser() {
             var stack = [lrInit],
                 semanticsStack = [],
@@ -1025,18 +1062,7 @@
                     gotoNew,
                     argsToPass;
 
-                if(ended) {
-                    throw new Error("Parsing has already ended");
-                }
-                stackTop = stack[stack.length - 1];
-                anAction = getAction(stackTop, token);
-                if(!anAction) {
-                    throw new Error("Syntax error");
-                } else if(anAction[0] === "shift") {
-                    stack.push(token);
-                    stack.push(anAction[1]);
-                    semanticsStack.push(attr);
-                } else if(anAction[0] === "reduce") {
+                function reduceAction() {
                     rule = grammar.rules[anAction[1]];
                     stack.splice(stack.length - rule[1].length * 2, rule[1].length * 2);
                     gotoNew = lr0.fa[stack[stack.length - 1]][rule[0]];
@@ -1048,6 +1074,31 @@
                     } else {
                         semanticsStack.push(argsToPass.length > 0 ? argsToPass[0] : null);
                     }
+                }
+
+                function reduceDefaultAction() {
+                    stackTop = stack[stack.length - 1];
+                    anAction = getAction(stackTop, DEFAULT_TOKEN);
+                    if(anAction && anAction[0] === "reduce") {
+                        reduceAction();
+                        reduceDefaultAction();
+                    }
+                }
+
+                if(ended) {
+                    throw new Error("Parsing has already ended");
+                }
+                stackTop = stack[stack.length - 1];
+                anAction = getAction(stackTop, token);
+                if(!anAction) {
+                    throw new Error("Syntax error");
+                } else if(anAction[0] === "shift") {
+                    stack.push(token);
+                    stack.push(anAction[1]);
+                    semanticsStack.push(attr);
+                    reduceDefaultAction();
+                } else if(anAction[0] === "reduce") {
+                    reduceAction();
                     return step(token, attr);
                 } else if(anAction[0] === "accept") {
                     ended = true;
@@ -1126,6 +1177,7 @@
         reconstructClosurePool();
         propagateLookahead();
         constructLALR();
+        modifyLALR();
         //return {
         //    items: lr0,
         //    first: first,
