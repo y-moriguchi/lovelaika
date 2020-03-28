@@ -18,7 +18,7 @@ describe("NFA", function () {
 
         rules = {
             "init": {
-                "rules": [NFA.rule(pattern, function(str) { ok = str; }), NFA.ruleEOF()]
+                "rules": [NFA.rule(pattern, function(str) { ok = str; }), NFA.ruleEOF(NFA.acceptAction())]
             }
         };
         engine = NFA.create(rules, "init");
@@ -54,7 +54,7 @@ describe("NFA", function () {
 
         rules = {
             "init": {
-                "rules": [NFA.ruleReal(function(str) { ok = str; }), NFA.ruleEOF()]
+                "rules": [NFA.ruleReal(function(str) { ok = str; }), NFA.ruleEOF(NFA.acceptAction())]
             }
         };
         engine = NFA.create(rules, "init");
@@ -71,7 +71,7 @@ describe("NFA", function () {
         try {
             rules = {
                 "init": {
-                    "rules": [NFA.ruleReal(function(str) { ok = str; }), NFA.ruleEOF()]
+                    "rules": [NFA.ruleReal(function(str) { ok = str; }), NFA.ruleEOF(NFA.acceptAction())]
                 }
             };
             engine = NFA.create(rules, "init");
@@ -234,7 +234,7 @@ describe("NFA", function () {
                 "init": {
                     "rules": [
                         createBase("init"),
-                        NFA.ruleEOF()
+                        NFA.ruleEOF(NFA.transitAction(NFA.ACCEPT))
                     ]
                 },
 
@@ -343,7 +343,7 @@ describe("NFA", function () {
                 },
 
                 "end": {
-                    "rules": [ NFA.rule("$") ]
+                    "rules": [ NFA.rule("$", NFA.acceptAction()) ]
                 }
             };
 
