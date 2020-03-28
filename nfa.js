@@ -3,7 +3,6 @@
         var patternFloat = "[\\+\\-]?([0-9]+(\\.[0-9]+)?|\\.[0-9]+)([eE][\\+\\-]?[0-9]+)?";
         var EOF = { "$": "$" };
         var STACKTOP = {};
-        var ACCEPT = { "acc": "" };
         var MAXEOFCALL = 100;
 
         function genState() {
@@ -151,6 +150,10 @@
                     } else {
                         return makeSet();
                     }
+                },
+
+                isDeadState: function(state) {
+                    return state === end;
                 }
             };
             return me;
@@ -176,6 +179,10 @@
                     } else {
                         return makeSet();
                     }
+                },
+
+                isDeadState: function(state) {
+                    return state === end;
                 }
             };
             return me;
@@ -231,6 +238,10 @@
                         }
                     }
                     return makeSet();
+                },
+
+                isDeadState: function(state) {
+                    return args[args.length - 1].isDeadState();
                 }
             };
             return me;
@@ -301,6 +312,10 @@
                         }
                     }
                     return makeSet();
+                },
+
+                isDeadState: function(state) {
+                    return state === end;
                 }
             };
             return me;
@@ -333,6 +348,10 @@
 
                 transit: function(state, transCh) {
                     return nfa.transit(state, transCh);
+                },
+
+                isDeadState: function(state) {
+                    return !repeatable && state === end;
                 }
             };
             return me;
@@ -408,6 +427,17 @@
                         }
                         return makeSet();
                     }
+                },
+
+                isDeadState: function(state) {
+                    var i;
+
+                    for(i = 0; i < args.length; i++) {
+                        if(args[i].isDeadState(state)) {
+                            return true;
+                        }
+                    }
+                    return false;
                 }
             };
             return me;
@@ -699,9 +729,6 @@
             this.attr = attr;
         }
 
-        function Accept() {
-        }
-
         function makeEngine(schema, initCond) {
             var nfas = [],
                 parallels = {},
@@ -709,7 +736,6 @@
                 cond = initCond,
                 condStack = [initCond],
                 attrStack = [STACKTOP],
-                accepted = false,
                 eofcall = 0,
                 resultString = "",
                 rules,
@@ -743,6 +769,15 @@
                 }));
             }
 
+            function isDeadState(nfa, states) {
+                var result = false;
+
+                eachSet(states, function(state) {
+                    result = result || nfa.isDeadState(state);
+                });
+                return result;
+            }
+
             function resetState(cond) {
                 resultString = "";
                 states = makeSet(parallels[cond].init);
@@ -764,9 +799,7 @@
                     attrStack.pop();
                     condStack.push(condNew.cond);
                     attrStack.push(condNew.attr);
-                } else if(condNew instanceof Accept) {
-                    return true;
-                } else if(typeof condNew === "string" || condNew === ACCEPT) {
+                } else if(typeof condNew === "string") {
                     condStack.pop();
                     condStack.push(condNew);
                 } else if(condNew !== void 0) {
@@ -778,9 +811,7 @@
                 } else {
                     attrTop = attrStack[attrStack.length - 1];
                     cond = condStack[condStack.length - 1];
-                    if(cond === ACCEPT) {
-                        return true;
-                    } else if(!rules[cond]) {
+                    if(!rules[cond]) {
                         throw new Error("condition " + cond + " is not exist");
                     } else if(rules[cond].trigger) {
                         return changeCond(rules[cond].trigger(attrTop));
@@ -797,17 +828,8 @@
                     i,
                     condNew;
 
-                if(condStack.length === 0) {
-                    throw new Error("Condition stack has already been empty");
-                } else if(accepted) {
-                    throw new Error("Already accepted");
-                }
-
-                statesNew = transitStates(parallels[cond], states, ch);
-                if(isEmptySet(statesNew)) {
-                    if(ch !== EOF && resultString === "") {
-                        throw new Error("Syntax Error");
-                    }
+                function execAction() {
+                    var i;
 
                     for(i = 0; i < rules[cond].rules.length; i++) {
                         if(isAccept(rules[cond].rules[i].pattern, states)) {
@@ -817,20 +839,36 @@
                                 condNew = void 0;
                             }
                             if(changeCond(condNew)) {
-                                accepted = true;
-                                return;
+                                return false;
                             }
                             resetState(cond);
-                            return step(ch);
+                            return true;
                         }
                     }
                     throw new Error("Syntax Error");
+                }
+
+                if(condStack.length === 0) {
+                    throw new Error("Condition stack has already been empty");
+                }
+
+                statesNew = transitStates(parallels[cond], states, ch);
+                if(isEmptySet(statesNew)) {
+                    if(ch !== EOF && resultString === "") {
+                        throw new Error("Syntax Error");
+                    }
+
+                    if(execAction()) {
+                        return step(ch);
+                    } else {
+                        return;
+                    }
                 } else {
                     states = statesNew;
                     if(ch !== EOF) {
                         resultString += ch;
-                    } else if(eofcall >= MAXEOFCALL) {
-                        throw new Error("Maybe missing accept state");
+                    } else if(isDeadState(parallels[cond], states)) {
+                        execAction();
                     } else {
                         eofcall++;
                         step(ch);
@@ -870,7 +908,6 @@
                     cond = initCond;
                     condStack = [initCond];
                     attrStack = [STACKTOP];
-                    accepted = false;
                     eofcall = 0;
                 }
             };
@@ -879,7 +916,6 @@
         return {
             EOF: EOF,
             STACKTOP: STACKTOP,
-            ACCEPT: ACCEPT,
             rule: makeRule,
 
             ruleReal: function(action) {
@@ -918,12 +954,6 @@
             transitAction: function(cond) {
                 return function() {
                     return cond;
-                };
-            },
-
-            acceptAction: function() {
-                return function() {
-                    return new Accept();
                 };
             }
         };
