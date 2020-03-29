@@ -1,5 +1,7 @@
 (function(root) {
-    var END = "#$";
+    var INNER_PREFIX = "\n";
+    var INNER_PREFIX_TEST = /^\n[\s\S]/;
+    var END = INNER_PREFIX + "$";
     var REGEX_UPPER_STRING = 
         "^[\\u0041-\\u005A\\u00C0-\\u00D6\\u00D8-\\u00DE\\u0100\\u0102\\u0104" +
         "\\u0106\\u0108\\u010A\\u010C\\u010E\\u0110\\u0112\\u0114\\u0116\\u0118" +
@@ -285,10 +287,10 @@
     }
 
     function GenerateParser(inputGrammar) {
-        var EPSILON = "#e",
-            DUMMY = "#d",
-            START = "#S'",
-            DEFAULT_TOKEN = "#default",
+        var EPSILON = INNER_PREFIX + "e",
+            DUMMY = INNER_PREFIX + "d",
+            START = INNER_PREFIX + "S'",
+            DEFAULT_TOKEN = INNER_PREFIX + "default",
             grammar,
             first = {},
             follow = {},
@@ -1121,7 +1123,7 @@
             }
 
             function checkValidSymbol(symbol) {
-                if(symbol !== START && /^#[\s\S]/.test(symbol)) {
+                if(symbol !== START && INNER_PREFIX_TEST.test(symbol)) {
                     throw new Error("Invalid symbol: " + symbol);
                 }
             }
