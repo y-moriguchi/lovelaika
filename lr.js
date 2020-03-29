@@ -779,6 +779,9 @@
                                     if(!isKernelItem(itemPropagate) && itemPropagate.rule[0] === getItemSymbol(item)) {
                                         lr0item = searchItemFromClosurePool(itemId, item);
                                         itemPropagate.lookaheads = union(itemPropagate.lookaheads, lr0item.lookaheads);
+                                        if(itemPropagate.rule[1].length === 0) {
+                                            itemPropagate.lookaheads = union(itemPropagate.lookaheads, getFollow(itemPropagate.rule[0]));
+                                        }
                                     }
                                 });
                             }
@@ -1178,18 +1181,12 @@
         propagateLookahead();
         constructLALR();
         modifyLALR();
-        //return {
-        //    items: lr0,
-        //    first: first,
-        //    follow: follow,
-        //    action: lrAction,
-        //    init: lrInit,
-        //    closure: closurePool
-        //};
         parser = createLRParser();
         return {
             parser: parser,
-            conflicts: conflicts
+            conflicts: conflicts,
+            action: lrAction,
+            closure: closurePool
         };
     }
 
