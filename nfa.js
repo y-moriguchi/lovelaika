@@ -775,10 +775,10 @@
             }
 
             function isDeadState(nfa, states) {
-                var result = false;
+                var result = true;
 
                 eachSet(states, function(state) {
-                    result = result || nfa.isDeadState(state);
+                    result = result && nfa.isDeadState(state);
                 });
                 return result;
             }
