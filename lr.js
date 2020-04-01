@@ -70,6 +70,7 @@
         "\\uA78D\\uA790\\uA792\\uA7A0\\uA7A2\\uA7A4\\uA7A6\\uA7A8\\uA7AA" +
         "\\uFF21-\\uFF3A]";
     var REGEX_UPPER = new RegExp(REGEX_UPPER_STRING);
+    var ERROROK = { "errorok": "" };
 
     function isArray(obj) {
         return Object.prototype.toString.call(obj) === '[object Array]';
@@ -291,6 +292,7 @@
             DUMMY = INNER_PREFIX + "d",
             START = INNER_PREFIX + "S'",
             DEFAULT_TOKEN = INNER_PREFIX + "default",
+            ERROR_TOKEN = "error",
             grammar,
             first = {},
             follow = {},
@@ -1056,9 +1058,11 @@
         }
 
         function createLRParser() {
-            var stack = [lrInit],
+            var NOTERROR = { "noterror": "" },
+                stack = [lrInit],
                 semanticsStack = [],
-                ended = false;
+                ended = false,
+                errorToken = NOTERROR;
 
             function step(token, attr) {
                 var stackTop,
@@ -1067,6 +1071,23 @@
                     gotoNew,
                     argsToPass;
 
+                function pushSemanticsStack(action, argsToPass) {
+                    var actionResult,
+                        tokenCall;
+
+                    if(action) {
+                        actionResult = action.apply(null, argsToPass);
+                    } else {
+                        actionResult = argsToPass.length > 0 ? argsToPass[0] : null;
+                    }
+                    if(actionResult === ERROROK) {
+                        errorToken = NOTERROR;
+                        semanticsStack.push(null);
+                    } else {
+                        semanticsStack.push(actionResult);
+                    }
+                }
+
                 function reduceAction() {
                     rule = grammar.rules[anAction[1]];
                     stack.splice(stack.length - rule[1].length * 2, rule[1].length * 2);
@@ -1074,11 +1095,7 @@
                     stack.push(rule[0]);
                     stack.push(gotoNew);
                     argsToPass = semanticsStack.splice(semanticsStack.length - rule[1].length, rule[1].length);
-                    if(rule[2]) {
-                        semanticsStack.push(rule[2].apply(null, argsToPass));
-                    } else {
-                        semanticsStack.push(argsToPass.length > 0 ? argsToPass[0] : null);
-                    }
+                    pushSemanticsStack(rule[2], argsToPass);
                 }
 
                 function reduceDefaultAction() {
@@ -1090,13 +1107,36 @@
                     }
                 }
 
+                function processErrorMode() {
+                    var errorAction;
+
+                    errorToken = token;
+                    errorAction = getAction(stackTop, ERROR_TOKEN);
+                    while(!(errorAction && errorAction[0] === "shift")) {
+                        if(stack.length <= 1) {
+                            throw new Error("Syntax error");
+                        }
+                        stack.splice(stack.length - 2, 2);
+                        semanticsStack.pop();
+                        stackTop = stack[stack.length - 1];
+                        errorAction = getAction(stackTop, ERROR_TOKEN);
+                    }
+                    stack.push(ERROR_TOKEN);
+                    stack.push(errorAction[1]);
+                    semanticsStack.push(null);
+                    reduceDefaultAction();
+                    step(token, attr);
+                }
+
                 if(ended) {
                     throw new Error("Parsing has already ended");
                 }
                 stackTop = stack[stack.length - 1];
                 anAction = getAction(stackTop, token);
                 if(!anAction) {
-                    throw new Error("Syntax error");
+                    if(errorToken === NOTERROR) {
+                        processErrorMode();
+                    }
                 } else if(anAction[0] === "shift") {
                     stack.push(token);
                     stack.push(anAction[1]);
@@ -1195,11 +1235,13 @@
     if(typeof module !== "undefined" && module.exports) {
         module.exports = {
             parser: GenerateParser,
+            ERROROK: ERROROK,
             END: END
         };
     } else {
         root["LR"] = {
             parser: GenerateParser,
+            ERROROK: ERROROK,
             END: END
         };
     }
