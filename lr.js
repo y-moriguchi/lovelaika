@@ -1076,6 +1076,13 @@
                 return semanticsStack[semanticsStack.length - depth];
             }
 
+            function setSemanticsStack(depth, value) {
+                if(depth <= 0 || depth > semanticsStack.length) {
+                    throw new Error("Invalid depth of stack");
+                }
+                semanticsStack[semanticsStack.length - depth] = value;
+            }
+
             function step(token, attr) {
                 var stackTop,
                     anAction,
@@ -1162,9 +1169,11 @@
                     return semanticsStack[0];
                 }
                 return null;
-            };
+            }
+
             thisAction = {
-                getStack: getSemanticsStack
+                getStack: getSemanticsStack,
+                setStack: setSemanticsStack
             };
             return step;
         }
