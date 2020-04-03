@@ -339,7 +339,9 @@
         function getFirst(symbol) {
             var result;
 
-            if(isTerminal(symbol) || symbol === DUMMY) {
+            if(symbol === EPSILON) {
+                return makeSet();
+            } else if(isTerminal(symbol) || symbol === DUMMY) {
                 return makeSet(symbol);
             } else if(isNonterminal(symbol)) {
                 result = first[symbol];
@@ -365,7 +367,9 @@
         }
 
         function isFirstNullable(symbol) {
-            if(isTerminal(symbol) || symbol === DUMMY) {
+            if(symbol === EPSILON) {
+                return false;
+            } else if(isTerminal(symbol) || symbol === DUMMY) {
                 return false;
             } else if(isNonterminal(symbol)) {
                 return first[symbol] && containsSet(first[symbol], EPSILON);
@@ -1062,7 +1066,15 @@
                 stack = [lrInit],
                 semanticsStack = [],
                 ended = false,
-                errorToken = NOTERROR;
+                errorToken = NOTERROR,
+                thisAction;
+
+            function getSemanticsStack(depth) {
+                if(depth <= 0 || depth > semanticsStack.length) {
+                    throw new Error("Invalid depth of stack");
+                }
+                return semanticsStack[semanticsStack.length - depth];
+            }
 
             function step(token, attr) {
                 var stackTop,
@@ -1076,7 +1088,7 @@
                         tokenCall;
 
                     if(action) {
-                        actionResult = action.apply(null, argsToPass);
+                        actionResult = action.apply(thisAction, argsToPass);
                     } else {
                         actionResult = argsToPass.length > 0 ? argsToPass[0] : null;
                     }
@@ -1151,19 +1163,31 @@
                 }
                 return null;
             };
+            thisAction = {
+                getStack: getSemanticsStack
+            };
             return step;
         }
 
         function formatGrammar(inputGrammar) {
             var result = {},
+                markerCounter = 1,
                 i;
+
+            function genMarker() {
+                return INNER_PREFIX + "M" + (markerCounter++);
+            }
+
+            function isMarker(symbol) {
+                return symbol.length >= 2 && symbol.substring(0, 2) === INNER_PREFIX + "M";
+            }
 
             function isNonterminal(symbol) {
                 return symbol === START || REGEX_UPPER.test(symbol);
             }
 
             function checkValidSymbol(symbol) {
-                if(symbol !== START && INNER_PREFIX_TEST.test(symbol)) {
+                if(symbol !== START && !isMarker(symbol) && INNER_PREFIX_TEST.test(symbol)) {
                     throw new Error("Invalid symbol: " + symbol);
                 }
             }
@@ -1171,6 +1195,8 @@
             function scanSymbol(rules) {
                 var terminals = makeSet(),
                     nonterminals = makeSet(),
+                    marker,
+                    resultRules = deepCopy(rules),
                     i,
                     j;
 
@@ -1180,7 +1206,12 @@
                     }
                     nonterminals = addElement(nonterminals, rules[i][0]);
                     for(j = 0; j < rules[i][1].length; j++) {
-                        if(isNonterminal(rules[i][1][j])) {
+                        if(typeof rules[i][1][j] === "function") {
+                            marker = genMarker();
+                            resultRules.push([marker, []]);
+                            resultRules[i][1][j] = marker;
+                            nonterminals = addElement(nonterminals, marker);
+                        } else if(isNonterminal(rules[i][1][j])) {
                             nonterminals = addElement(nonterminals, rules[i][1][j]);
                         } else {
                             terminals = addElement(terminals, rules[i][1][j]);
@@ -1191,6 +1222,7 @@
                 eachSet(nonterminals, checkValidSymbol);
                 result.terminals = setToArray(terminals);
                 result.nonterminals = setToArray(nonterminals);
+                result.rules = resultRules;
             }
 
             if(!isNonterminal(inputGrammar.start)) {
