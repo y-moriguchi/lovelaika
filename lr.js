@@ -764,6 +764,7 @@
                             toId = lr0.fa[itemId][symbolItem];
                             eachSet(getClosureById(toId), function(item1) {
                                 if(isKernelItem(item1)) {
+                                    // generate lookahead to kernel items
                                     lr0item = searchItemFromClosurePool(itemId, item);
                                     fn(toId, item, lr0item, item1);
                                 }
@@ -781,6 +782,7 @@
                         closure1 = computeClosureLR1(makeSet(makeItemLookahead(item0.ruleIndex, item0.mark, DUMMY)));
                         eachSet(closure1, function(item) {
                             if(propagate) {
+                                // propagate lookahead to non-kernel items
                                 eachSet(closure, function(itemPropagate) {
                                     var lr0item;
 
@@ -802,6 +804,7 @@
             eachClosure(function(toId, lr1item, item1, item2) {
                 var nextItem;
 
+                // spontaneous lookahead S -> alpha * A beta to S -> alpha A * beta
                 if(lr1item.lookahead !== DUMMY && item2.ruleIndex === lr1item.ruleIndex && getItemSymbol(lr1item) === getBackItemSymbol(item2)) {
                     item2.lookaheads = addElement(item2.lookaheads, lr1item.lookahead);
                 }
@@ -812,6 +815,7 @@
                 eachClosure(function(toId, lr1item, item1, item2) {
                     var count;
 
+                    // propagated lookahead S -> alpha * A beta to S -> alpha A * beta
                     if(lr1item.lookahead === DUMMY && item2.ruleIndex === lr1item.ruleIndex && getItemSymbol(lr1item) === getBackItemSymbol(item2)) {
                         count = countSet(item2.lookaheads);
                         item2.lookaheads = union(item2.lookaheads, item1.lookaheads);
