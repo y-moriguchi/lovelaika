@@ -1,10 +1,15 @@
 (function(root) {
+    var twoBytesStr = "";
+    twoBytesStr += '\u2e80-\u2eff\u3000-\u30ff\u3300-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f';
+    var TWOBYTES = new RegExp('[' + twoBytesStr + ']');
+
     function createQuadro(inputString) {
         var input = inputString.split(/\r\n|\r|\n/),
             cellMatrix = [],
             maxLength = 0,
             i,
             j,
+            y,
             me;
 
         for(i = 0; i < input.length; i++) {
@@ -13,10 +18,16 @@
 
         for(i = 0; i < input.length; i++) {
             cellMatrix[i] = [];
-            for(j = 0; j < maxLength; j++) {
-                cellMatrix[i][j] = {
+            for(j = y = 0; j < maxLength; j++, y++) {
+                cellMatrix[i][y] = {
                     ch: j < input[i].length ? input[i].charAt(j) : ' '
                 };
+                if(j < input[i].length && TWOBYTES.test(input[i].charAt(j))) {
+                    cellMatrix[i][y + 1] = {
+                        ch: ""
+                    };
+                    y++;
+                }
             }
         }
 
@@ -58,16 +69,19 @@
                     }
                 }
                 return result;
+            },
+
+            getXY: function(x, y) {
+                return cellMatrix[y][x].ch;
             }
         };
         return me;
     }
 
-    function parse(input) {
+    function parse(quadro) {
         var i,
             j,
             result = {},
-            quadro = createQuadro(input),
             horizontal = quadro.getHorizontalStrings(),
             vertical = quadro.getVerticalStrings(),
             hPattern = /[\+][-\+]*[\+]/g,
@@ -103,11 +117,28 @@
         return result;
     }
 
-    function findBox(parsed) {
+    function findBox(parsed, quadro) {
         var i,
             j,
             horizontalPair = [],
-            verticalPair = [];
+            verticalPair = [],
+            texts;
+
+        function getText(x1, y1, x2, y2) {
+            var i,
+                j,
+                text1,
+                result = [];
+
+            for(i = y1 + 1; i < y2; i++) {
+                text1 = "";
+                for(j = x1 + 1; j < x2; j++) {
+                    text1 += quadro.getXY(j, i);
+                }
+                result.push(text1.trim());
+            }
+            return result;
+        }
 
         parsed.boxes = [];
         for(i = 0; i < parsed.horizontalLines.length; i++) {
@@ -139,11 +170,17 @@
                 if(!parsed.horizontalLines[horizontalPair[i].i].box &&
                         parsed.horizontalLines[horizontalPair[i].i].y === parsed.verticalLines[verticalPair[j].i].y1 &&
                         parsed.horizontalLines[horizontalPair[i].j].y === parsed.verticalLines[verticalPair[j].i].y2) {
+                    texts = getText(
+                        parsed.horizontalLines[horizontalPair[i].i].x1,
+                        parsed.verticalLines[verticalPair[j].i].y1,
+                        parsed.horizontalLines[horizontalPair[i].i].x2,
+                        parsed.verticalLines[verticalPair[j].i].y2);
                     parsed.boxes.push({
                         x1: parsed.horizontalLines[horizontalPair[i].i].x1,
                         x2: parsed.horizontalLines[horizontalPair[i].i].x2,
                         y1: parsed.verticalLines[verticalPair[j].i].y1,
-                        y2: parsed.verticalLines[verticalPair[j].i].y2
+                        y2: parsed.verticalLines[verticalPair[j].i].y2,
+                        texts: texts
                     });
                     parsed.horizontalLines[horizontalPair[i].i].box = true;
                     parsed.horizontalLines[horizontalPair[i].j].box = true;
@@ -181,44 +218,60 @@
         };
     }
 
+    function text(x, y, size, font, text) {
+        return function() {
+            return '<text x="' + x + '" y="' + y +'" font-size="' + size + '" font-family="' + font + '">' + text + '</text>';
+        }
+    }
+
     function drawSvg(input, option) {
         var i,
+            j,
             elements = [],
-            optsize = 12,
+            optsizex = 12,
+            optsizey = 16,
             optborder = 12;
 
         for(i = 0; i < input.boxes.length; i++) {
-            elements.push(rect(optborder + input.boxes[i].x1 * optsize,
-                optborder + input.boxes[i].y1 * optsize,
-                (input.boxes[i].x2 - input.boxes[i].x1) * optsize,
-                (input.boxes[i].y2 - input.boxes[i].y1) * optsize));
+            elements.push(rect(optborder + input.boxes[i].x1 * optsizex,
+                optborder + input.boxes[i].y1 * optsizey,
+                (input.boxes[i].x2 - input.boxes[i].x1) * optsizex,
+                (input.boxes[i].y2 - input.boxes[i].y1) * optsizey));
+            for(j = 0; j < input.boxes[i].texts.length; j++) {
+                elements.push(text(optborder + (input.boxes[i].x1 + 0.5) * optsizex,
+                    optborder + (input.boxes[i].y1 + 1 + j) * optsizey,
+                    optsizex,
+                    "Verdana",
+                    input.boxes[i].texts[j]));
+            }
         }
 
         for(i = 0; i < input.horizontalLines.length; i++) {
             if(!input.horizontalLines[i].box) {
-                elements.push(line(optborder + input.horizontalLines[i].x1 * optsize,
-                    optborder + input.horizontalLines[i].y * optsize,
-                    optborder + input.horizontalLines[i].x2 * optsize,
-                    optborder + input.horizontalLines[i].y * optsize));
+                elements.push(line(optborder + input.horizontalLines[i].x1 * optsizex,
+                    optborder + input.horizontalLines[i].y * optsizey,
+                    optborder + input.horizontalLines[i].x2 * optsizex,
+                    optborder + input.horizontalLines[i].y * optsizey));
             }
         }
 
         for(i = 0; i < input.verticalLines.length; i++) {
             if(!input.verticalLines[i].box) {
-                elements.push(line(optborder + input.verticalLines[i].x * optsize,
-                    optborder + input.verticalLines[i].y1 * optsize,
-                    optborder + input.verticalLines[i].x * optsize,
-                    optborder + input.verticalLines[i].y2 * optsize));
+                elements.push(line(optborder + input.verticalLines[i].x * optsizex,
+                    optborder + input.verticalLines[i].y1 * optsizey,
+                    optborder + input.verticalLines[i].x * optsizex,
+                    optborder + input.verticalLines[i].y2 * optsizey));
             }
         }
-        return svg(optborder * 2 + input.sizeX * optsize, optborder * 2 + input.sizeY * optsize, elements);
+        return svg(optborder * 2 + input.sizeX * optsizex, optborder * 2 + input.sizeY * optsizey, elements);
     }
 
     function pic(input) {
-        var result;
+        var result,
+            quadro = createQuadro(input);
 
-        result = parse(input);
-        result = findBox(result);
+        result = parse(quadro);
+        result = findBox(result, quadro);
         result = drawSvg(result, {});
         return result;
     }
