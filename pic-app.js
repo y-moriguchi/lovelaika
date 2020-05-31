@@ -21,8 +21,14 @@ function writefile(outfile, data) {
 
 function createPic(infile, outfile) {
     var text = readfile(infile),
-        svg = Pic(text)();
+        svg;
 
+    try {
+        svg = Pic(text)();
+    } catch(e) {
+        console.log("Parse error");
+        process.exit(2);
+    }
     writefile(outfile, svg);
 }
 
