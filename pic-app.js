@@ -29,7 +29,7 @@ function createPic(infile, outfile) {
 function main() {
     if(process.argv.length < 4) {
         console.log("usage: pic <infilename> <outfilename>");
-        console.log(1);
+        process.exit(1);
     }
     createPic(process.argv[2], process.argv[3]);
 }
