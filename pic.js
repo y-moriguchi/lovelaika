@@ -84,8 +84,8 @@
             result = {},
             horizontal = quadro.getHorizontalStrings(),
             vertical = quadro.getVerticalStrings(),
-            hPattern = /[\+][-\+]*[\+]/g,
-            vPattern = /[\+][\|\+]*[\+]/g;
+            hPattern = /([\+<])[\-\+]*([\+>])/g,
+            vPattern = /([\+\^])[\|\+]*([\+v])/g;
 
         result.horizontalLines = [];
         result.verticalLines = [];
@@ -95,7 +95,9 @@
                 result.horizontalLines.push({
                     x1: matched.index,
                     x2: hPattern.lastIndex - 1,
-                    y: i
+                    y: i,
+                    leftArrow: matched[1] === "<",
+                    rightArrow: matched[2] === ">"
                 });
                 hPattern.lastIndex--;
             }
@@ -106,7 +108,9 @@
                 result.verticalLines.push({
                     y1: matched.index,
                     y2: vPattern.lastIndex - 1,
-                    x: i
+                    x: i,
+                    upArrow: matched[1] === "^",
+                    downArrow: matched[2] === "v"
                 });
                 vPattern.lastIndex--;
             }
@@ -224,13 +228,33 @@
         }
     }
 
+    function arrow(x, y, size, direction) {
+        return function() {
+            if(direction === "down") {
+                return '<path d="M ' + x + ' ' + y + ' l -' + (size / 2) + ' -' + size + ' l ' + size + ' 0 Z" />';
+            } else if(direction === "up") {
+                return '<path d="M ' + x + ' ' + y + ' l -' + (size / 2) + ' ' + size + ' l ' + size + ' 0 Z" />';
+            } else if(direction === "left") {
+                return '<path d="M ' + x + ' ' + y + ' l ' + size + ' -' + (size / 2) + ' l 0 ' + size + ' Z" />';
+            } else if(direction === "right") {
+                return '<path d="M ' + x + ' ' + y + ' l -' + size + ' -' + (size / 2) + ' l 0 ' + size + ' Z" />';
+            }
+        }
+    }
+
     function drawSvg(input, option) {
         var i,
             j,
             elements = [],
-            optsizex = 12,
-            optsizey = 16,
-            optborder = 12;
+            opt = option ? option : {},
+            optsizex = opt.sizex ? opt.sizex : 12,
+            optsizey = opt.sizey ? opt.sizey : optsizex / 12 * 16,
+            optborder = opt.border ? opt.border : 12,
+            arrowSize = opt.arrowSize ? opt.arrowSize : 8,
+            optx1,
+            opty1,
+            optx2,
+            opty2;
 
         for(i = 0; i < input.boxes.length; i++) {
             elements.push(rect(optborder + input.boxes[i].x1 * optsizex,
@@ -248,31 +272,51 @@
 
         for(i = 0; i < input.horizontalLines.length; i++) {
             if(!input.horizontalLines[i].box) {
-                elements.push(line(optborder + input.horizontalLines[i].x1 * optsizex,
-                    optborder + input.horizontalLines[i].y * optsizey,
-                    optborder + input.horizontalLines[i].x2 * optsizex,
-                    optborder + input.horizontalLines[i].y * optsizey));
+                opty1 = optborder + input.horizontalLines[i].y * optsizey;
+                if(input.horizontalLines[i].leftArrow) {
+                    optx1 = optborder + (input.horizontalLines[i].x1 - 1) * optsizex + arrowSize;
+                    elements.push(arrow(optx1 - arrowSize, opty1, arrowSize, "left"));
+                } else {
+                    optx1 = optborder + input.horizontalLines[i].x1 * optsizex;
+                }
+                if(input.horizontalLines[i].rightArrow) {
+                    optx2 = optborder + (input.horizontalLines[i].x2 + 1) * optsizex - arrowSize;
+                    elements.push(arrow(optx1 + arrowSize, opty1, arrowSize, "right"));
+                } else {
+                    optx2 = optborder + input.horizontalLines[i].x2 * optsizex;
+                }
+                elements.push(line(optx1, opty1, optx2, opty1));
             }
         }
 
         for(i = 0; i < input.verticalLines.length; i++) {
             if(!input.verticalLines[i].box) {
-                elements.push(line(optborder + input.verticalLines[i].x * optsizex,
-                    optborder + input.verticalLines[i].y1 * optsizey,
-                    optborder + input.verticalLines[i].x * optsizex,
-                    optborder + input.verticalLines[i].y2 * optsizey));
+                optx1 = optborder + input.verticalLines[i].x * optsizex;
+                if(input.verticalLines[i].upArrow) {
+                    opty1 = optborder + (input.verticalLines[i].y1 - 1) * optsizey + arrowSize;
+                    elements.push(arrow(optx1, opty1 - arrowSize, arrowSize, "up"));
+                } else {
+                    opty1 = optborder + input.verticalLines[i].y1 * optsizey;
+                }
+                if(input.verticalLines[i].downArrow) {
+                    opty2 = optborder + (input.verticalLines[i].y2 + 1) * optsizey - arrowSize;
+                    elements.push(arrow(optx1, opty2 + arrowSize, arrowSize, "down"));
+                } else {
+                    opty2 = optborder + input.verticalLines[i].y2 * optsizey;
+                }
+                elements.push(line(optx1, opty1, optx1, opty2));
             }
         }
         return svg(optborder * 2 + input.sizeX * optsizex, optborder * 2 + input.sizeY * optsizey, elements);
     }
 
-    function pic(input) {
+    function pic(input, option) {
         var result,
             quadro = createQuadro(input);
 
         result = parse(quadro);
         result = findBox(result, quadro);
-        result = drawSvg(result, {});
+        result = drawSvg(result, option);
         return result;
     }
 
