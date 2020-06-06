@@ -84,8 +84,8 @@
             result = {},
             horizontal = quadro.getHorizontalStrings(),
             vertical = quadro.getVerticalStrings(),
-            hPattern = /([\+<])[\-\+]*([\+>])/g,
-            vPattern = /([\+\^])[\|\+]*([\+v])/g;
+            hPattern = /([\+<])([\-\+_]*)([\+>])/g,
+            vPattern = /([\+\^])([\|\+:]*)([\+v])/g;
 
         result.horizontalLines = [];
         result.verticalLines = [];
@@ -97,7 +97,8 @@
                     x2: hPattern.lastIndex - 1,
                     y: i,
                     leftArrow: matched[1] === "<",
-                    rightArrow: matched[2] === ">"
+                    rightArrow: matched[3] === ">",
+                    dashed: /_/.test(matched[2])
                 });
                 hPattern.lastIndex--;
             }
@@ -110,7 +111,8 @@
                     y2: vPattern.lastIndex - 1,
                     x: i,
                     upArrow: matched[1] === "^",
-                    downArrow: matched[2] === "v"
+                    downArrow: matched[3] === "v",
+                    dashed: /:/.test(matched[2])
                 });
                 vPattern.lastIndex--;
             }
@@ -216,9 +218,9 @@
         };
     }
 
-    function line(x1, y1, x2, y2) {
+    function line(x1, y1, x2, y2, style) {
         return function() {
-            return '<line x1="' + x1 + '" x2="' + x2 + '" y1="' + y1 + '" y2="' + y2 + '" stroke="black" />';
+            return '<line x1="' + x1 + '" x2="' + x2 + '" y1="' + y1 + '" y2="' + y2 + '" stroke="black" style="' + style + '"/>';
         };
     }
 
@@ -251,10 +253,13 @@
             optsizey = opt.sizey ? opt.sizey : optsizex / 12 * 16,
             optborder = opt.border ? opt.border : 12,
             arrowSize = opt.arrowSize ? opt.arrowSize : 8,
+            optdash = opt.dash ? opt.dash : 5,
+            optfont = opt.font ? opt.font : "Verdana",
             optx1,
             opty1,
             optx2,
-            opty2;
+            opty2,
+            style;
 
         for(i = 0; i < input.boxes.length; i++) {
             elements.push(rect(optborder + input.boxes[i].x1 * optsizex,
@@ -265,7 +270,7 @@
                 elements.push(text(optborder + (input.boxes[i].x1 + 0.5) * optsizex,
                     optborder + (input.boxes[i].y1 + 1 + j) * optsizey,
                     optsizex,
-                    "Verdana",
+                    optfont,
                     input.boxes[i].texts[j]));
             }
         }
@@ -281,11 +286,16 @@
                 }
                 if(input.horizontalLines[i].rightArrow) {
                     optx2 = optborder + (input.horizontalLines[i].x2 + 1) * optsizex - arrowSize;
-                    elements.push(arrow(optx1 + arrowSize, opty1, arrowSize, "right"));
+                    elements.push(arrow(optx2 + arrowSize, opty1, arrowSize, "right"));
                 } else {
                     optx2 = optborder + input.horizontalLines[i].x2 * optsizex;
                 }
-                elements.push(line(optx1, opty1, optx2, opty1));
+                if(input.horizontalLines[i].dashed) {
+                    style = "stroke-dasharray: " + optdash + ", " + optdash;
+                } else {
+                    style = "";
+                }
+                elements.push(line(optx1, opty1, optx2, opty1, style));
             }
         }
 
@@ -304,7 +314,12 @@
                 } else {
                     opty2 = optborder + input.verticalLines[i].y2 * optsizey;
                 }
-                elements.push(line(optx1, opty1, optx1, opty2));
+                if(input.verticalLines[i].dashed) {
+                    style = "stroke-dasharray: " + optdash + ", " + optdash;
+                } else {
+                    style = "";
+                }
+                elements.push(line(optx1, opty1, optx1, opty2, style));
             }
         }
         return svg(optborder * 2 + input.sizeX * optsizex, optborder * 2 + input.sizeY * optsizey, elements);
