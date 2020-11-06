@@ -72,6 +72,35 @@
         return me;
     }
 
+    function searchPattern(pattern, aString, start) {
+        var i,
+            j,
+            back = 0;
+
+        outer: for(i = start; i < aString.length; i++) {
+            for(j = 0; j < pattern.length; j++) {
+                if(i + j >= aString.length) {
+                    return false;
+                } else if(pattern.charAt(j) === ".") {
+                    // next
+                } else if(pattern.charAt(j) === "^") {
+                    if(i === 0) {
+                        back++;
+                    } else if(aString.charAt(i + j - back) !== " ") {
+                        continue outer;
+                    }
+                } else if(pattern.charAt(j) !== aString.charAt(i + j - back)) {
+                    continue outer;
+                }
+            }
+
+            return {
+                "index": i,
+                "lastIndex": i + j - back
+            }
+        }
+    }
+
     function scanConsCell(quadro) {
         var i,
             j,
@@ -81,10 +110,11 @@
             ho1,
             ho2,
             cell,
+            matched,
             horizontal = quadro.getHorizontalStrings(),
             vertical = quadro.getVerticalStrings(),
-            hPattern = /\+[\|\-]\+[\|\-]\+/g,
-            vPattern = /\+[\|\-]\+/g;
+            hPattern = "+.+.+",
+            vPattern = "+.+";
 
         function scanHorizontalLine(ypoint) {
             var i,
@@ -116,20 +146,22 @@
         result.consCells = [];
 
         for(i = 0; i < horizontal.length; i++) {
-            while(!!(matched = hPattern.exec(horizontal[i]))) {
+            matched = { "lastIndex": 0 };
+            while(!!(matched = searchPattern(hPattern, horizontal[i], matched.lastIndex))) {
                 result.horizontalLines.push({
                     x1: matched.index,
-                    x2: hPattern.lastIndex - 1,
+                    x2: matched.lastIndex - 1,
                     y: i,
                 });
             }
         }
 
         for(i = 0; i < vertical.length; i++) {
-            while(!!(matched = vPattern.exec(vertical[i]))) {
+            matched = { "lastIndex": 0 };
+            while(!!(matched = searchPattern(vPattern, vertical[i], matched.lastIndex))) {
                 result.verticalLines.push({
                     y1: matched.index,
-                    y2: vPattern.lastIndex - 1,
+                    y2: matched.lastIndex - 1,
                     x: i,
                 });
             }
@@ -288,60 +320,86 @@
             cellId,
             matched,
             horizontal = quadro.getHorizontalStrings(),
-            hPattern = /(^| )>\|/g;
+            hPattern = "^>|";
 
         for(i = 0; i < horizontal.length; i++) {
-            while(!!(matched = hPattern.exec(horizontal[i]))) {
-                if((cellId = getConsCellPoint(consCells, hPattern.lastIndex - 1, i)) !== false) {
+            matched = { "lastIndex": 0 };
+            while(!!(matched = searchPattern(hPattern, horizontal[i], matched.lastIndex))) {
+                if((cellId = getConsCellPoint(consCells, matched.lastIndex - 1, i)) !== false) {
                     return cellId;
                 }
             }
         }
     }
 
-    function detectCommon(link, rootpoint) {
-        if(link[rootpoint].visited1pass) {
-            link[rootpoint].common = true;
-            return;
+    function toAtom(aString) {
+        var num;
+
+        num = parseFloat(aString);
+        if(!isNaN(num)) {
+            return num;
+        } else {
+            return aString;
         }
-        link[rootpoint].visited1pass = true;
-        if(typeof link[rootpoint].car === "object" && link[rootpoint].car !== null) {
-            detectCommon(link, link[rootpoint].car.cellId);
+    }
+
+    function assv(data, key) {
+        var i;
+
+        for(i = 0; i < data.length; i++) {
+            if(data[i][0] === key) {
+                return data[i];
+            }
         }
-        if(typeof link[rootpoint].cdr === "object" && link[rootpoint].cdr !== null) {
-            detectCommon(link, link[rootpoint].cdr.cellId);
-        }
-        return;
+        return false;
     }
 
     function toSExp(link, rootpoint) {
-        var car, cdr, common = "";
+        var i;
 
-        if(link[rootpoint].visited) {
-            return "#" + rootpoint + "#";
+        function walk(link, rootpoint) {
+            var car, cdr;
+
+            if(link[rootpoint].visited) {
+                return {
+                    "visited": rootpoint
+                };
+            }
+
+            link[rootpoint].visited = true;
+            if(link[rootpoint].car === null) {
+                car = null;
+            } else if(typeof link[rootpoint].car === "object" && link[rootpoint].car !== null) {
+                car = walk(link, link[rootpoint].car.cellId);
+            } else {
+                car = toAtom(link[rootpoint].car);
+            }
+
+            if(link[rootpoint].cdr === null) {
+                cdr = null;
+            } else if(typeof link[rootpoint].cdr === "object" && link[rootpoint].cdr !== null) {
+                cdr = walk(link, link[rootpoint].cdr.cellId);
+            } else {
+                cdr = toAtom(link[rootpoint].cdr);
+            }
+
+            link[rootpoint].value = {
+                "car": car,
+                "cdr": cdr
+            };
+            return link[rootpoint].value;
         }
 
-        link[rootpoint].visited = true;
-        if(link[rootpoint].car === null) {
-            car = "NIL";
-        } else if(typeof link[rootpoint].car === "object" && link[rootpoint].car !== null) {
-            car = toSExp(link, link[rootpoint].car.cellId);
-        } else {
-            car = link[rootpoint].car;
+        walk(link, rootpoint);
+        for(i = 0; i < link.length; i++) {
+            if(link[i].value.car !== null && typeof link[i].value.car.visited === "number") {
+                link[i].value.car = link[link[i].value.car.visited].value;
+            }
+            if(link[i].value.cdr !== null && typeof link[i].value.cdr.visited === "number") {
+                link[i].value.cdr = link[link[i].value.cdr.visited].value;
+            }
         }
-
-        if(link[rootpoint].cdr === null) {
-            cdr = "NIL";
-        } else if(typeof link[rootpoint].cdr === "object" && link[rootpoint].cdr !== null) {
-            cdr = toSExp(link, link[rootpoint].cdr.cellId);
-        } else {
-            cdr = link[rootpoint].cdr;
-        }
-
-        if(link[rootpoint].common) {
-            common = "#" + rootpoint + "=";
-        }
-        return common + "(" + car + " . " + cdr + ")";
+        return link[rootpoint].value;
     }
 
     function convertAExp(inputString) {
@@ -351,13 +409,53 @@
             sexp;
 
         scanLink(quadro, consCells);
-        detectCommon(consCells, rootpoint);
         sexp = toSExp(consCells, rootpoint);
         return sexp;
     }
 
+    function printSExp(sexp) {
+        var adata = [],
+            num = 1;
+
+        function walkList(sexp) {
+            var res;
+
+            if(sexp === null) {
+                return ")";
+            } else if(typeof sexp !== "object") {
+                return ". " + sexp.toString() + ")";
+            } else {
+                res = assv(adata, sexp);
+                if(res) {
+                    return "#" + res[1] + "#)";
+                }
+                adata.push([sexp, num++]);
+                return walk(sexp.car) + " " + walkList(sexp.cdr);
+            }
+        }
+
+        function walk(sexp) {
+            var res;
+
+            if(sexp === null) {
+                return "()";
+            } else if(typeof sexp !== "object") {
+                return sexp.toString();
+            } else {
+                res = assv(adata, sexp);
+                if(res) {
+                    return "#" + res[1] + "#";
+                }
+                adata.push([sexp, num++]);
+                return "(" + walk(sexp.car) + " " + walkList(sexp.cdr);
+            }
+        }
+        return walk(sexp);
+    }
+
     var aexp = {
-        parse: convertAExp
+        parse: convertAExp,
+        toString: printSExp
     };
 
     if(typeof module !== "undefined" && module.exports) {
