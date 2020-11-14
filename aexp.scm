@@ -101,9 +101,20 @@
                (lambda (pattern x y)
                  (matcher-y matrix pattern x y (vector-length matrix))))
               ((eq? msg 'get)
-               (lambda (x y) (matrix-ref matrix x y)))
+               (lambda (x y)
+                 (if (and (>= x 0)
+                          (< x maxlength)
+                          (>= y 0)
+                          (< y (vector-length matrix)))
+                     (matrix-ref matrix x y)
+                     #\space)))
               ((eq? msg 'set!)
-               (lambda (x y ch) (matrix-set! matrix x y ch)))
+               (lambda (x y ch)
+                 (if (and (>= x 0)
+                          (< x maxlength)
+                          (>= y 0)
+                          (< y (vector-length matrix)))
+                     (matrix-set! matrix x y ch))))
               (else (error "invalid message" msg))))))
 
   (define (quadro-size-x quadro) (quadro 'get-size-x))
@@ -258,14 +269,95 @@
 
     (define (get-value x y)
       (let loop1 ((x1 x))
-        (if (char=? (quadro-ref quadro x1 y) #\space)
+        (if (and (char=? (quadro-ref quadro x1 y) #\space)
+                 (char=? (quadro-ref quadro (- x1 1) y) #\space))
             (let loop2 ((x2 (+ x1 1)) (result ""))
-              (if (char=? (quadro-ref quadro x2 y) #\space)
-                  result
+              (if (and (char=? (quadro-ref quadro x2 y) #\space)
+                       (char=? (quadro-ref quadro (+ x2 1) y) #\space))
+                  (cadr (parse-sexp result 0))
                   (loop2 (+ x2 1)
                          (string-append result
                                         (make-string 1 (quadro-ref quadro x2 y))))))
             (loop1 (- x1 1)))))
+
+    (define (parse-sexp s i)
+      (cond ((char=? (string-ref s i) #\()
+             (let ((res2 (parse-sexp-list s (skip-space s (+ i 1)))))
+               (list (+ (car res2) 1) (cadr res2))))
+            (else (or (get-number s i)
+                      (get-string s i)
+                      (get-char s i)
+                      (get-symbol s i)))))
+
+    (define (parse-sexp-list s i)
+      (let* ((res1 (parse-sexp s i))
+             (j (skip-space s (car res1))))
+        (if (>= j (string-length s)) (error "Invalid expression"))
+        (cond ((char=? (string-ref s j) #\))
+               (list (+ j 1) (cons (cadr res1) '())))
+              ((and (< (+ j 1) (string-length s))
+                    (char=? (string-ref s j) #\.)
+                    (char=? (string-ref s (+ j 1)) #\space))
+               (let ((res2 (parse-sexp s (+ j 2))))
+                 (list (+ (car res2) 1) (cons (cadr res1) (cadr res2)))))
+              (else
+               (let ((res2 (parse-sexp-list s j)))
+                 (list (+ (car res2) 1) (cons (cadr res1) (cadr res2))))))))
+
+    (define (skip-space s i)
+      (let loop ((j i))
+        (if (and (< j (string-length s))
+                 (char=? (string-ref s j) #\space))
+            (loop (+ j 1))
+            j)))
+
+    (define (get-string s index)
+      (if (char=? (string-ref s index) #\")
+          (let loop ((i (+ index 1)) (lastch #\space) (result ""))
+            (cond ((char=? (string-ref s i) #\")
+                   (list (+ i 1) result))
+                  ((and (char=? (string-ref s i) #\\) (< (+ i 2) (string-length s)))
+                   (loop (+ i 2)
+                         (string-ref s (+ i 1))
+                         (string-append result
+                                        (case (string-ref s (+ i 1))
+                                          ((#\n) "\n")
+                                          ((#\r) "\r")
+                                          ((#\\) "\\")
+                                          ((#\") "\"")
+                                          (else (substring s (+ i 1) (+ i 2)))))))
+                  (else (loop (+ i 1) (string-ref s i) (string-append result (substring s i (+ i 1)))))))
+          #f))
+
+    (define (get-char s i)
+      (cond ((string=? s "#t") (list (+ i 2) #t))
+            ((string=? s "#f") (list (+ i 2) #f))
+            ((string=? s "#\\space") (list (+ i 7) #\space))
+            ((string=? s "#\\newline") (list (+ i 9) #\newline))
+            ((and (= (string-length s) 3) (string=? (substring s 0 2) "#\\"))
+             (list (+ i 3) (string-ref s 2)))
+            (else #f)))
+
+    (define (get-number s i)
+      (let loop ((j i))
+        (if (or (>= j (string-length s))
+                (char=? (string-ref s j) #\space)
+                (char=? (string-ref s j) #\))
+                (char=? (string-ref s j) #\())
+            (let ((num (string->number (substring s i j))))
+              (if num
+                  (list (+ j 1) num)
+                  #f))
+            (loop (+ j 1)))))
+
+    (define (get-symbol s i)
+      (let loop ((j i))
+        (if (or (>= j (string-length s))
+                (char=? (string-ref s j) #\space)
+                (char=? (string-ref s j) #\))
+                (char=? (string-ref s j) #\())
+            (list (+ j 1) (string->symbol (substring s i j)))
+            (loop (+ j 1)))))
 
     (let loop ((cells conscells))
       (cond ((null? cells) '())
@@ -351,7 +443,7 @@
     "   |                \n"
     "   |                \n"
     "   v                \n"
-    " equal?             \n"
+    " (1 23 aaa))        \n"
     "                    \n"
     "                    \n"
     "                    \n"
