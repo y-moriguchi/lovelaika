@@ -212,21 +212,45 @@
              (list 'atom '()))
             ((char=? (quadro-ref quadro x (- y 1)) #\|)
              (traverse-up x (- y 1)))
+            ((char=? (quadro-ref quadro x (- y 1)) #\+)
+             (quadro-set! quadro x y #\.)
+             (start x (- y 1)))
+            ((char=? (quadro-ref quadro x (- y 1)) #\^)
+             (quadro-set! quadro x y #\.)
+             (endpoint x (- y 2)))
             (else (start-right x y))))
 
     (define (start-right x y)
       (cond ((char=? (quadro-ref quadro (+ x 1) y) #\-)
              (traverse-right (+ x 1) y))
+            ((char=? (quadro-ref quadro (+ x 1) y) #\+)
+             (quadro-set! quadro x y #\.)
+             (start (+ x 1) y))
+            ((char=? (quadro-ref quadro (+ x 1) y) #\>)
+             (quadro-set! quadro x y #\.)
+             (endpoint (+ x 2) y))
             (else (start-down x y))))
 
     (define (start-down x y)
       (cond ((char=? (quadro-ref quadro x (+ y 1)) #\|)
              (traverse-down x (+ y 1)))
+            ((char=? (quadro-ref quadro x (+ y 1)) #\+)
+             (quadro-set! quadro x y #\.)
+             (start x (+ y 1)))
+            ((char=? (quadro-ref quadro x (+ y 1)) #\v)
+             (quadro-set! quadro x y #\.)
+             (endpoint x (+ y 2)))
             (else (start-left x y))))
 
     (define (start-left x y)
       (cond ((char=? (quadro-ref quadro (- x 1) y) #\-)
              (traverse-left (- x 1) y))
+            ((char=? (quadro-ref quadro (- x 1) y) #\+)
+             (quadro-set! quadro x y #\.)
+             (start (- x 1) y))
+            ((char=? (quadro-ref quadro (- x 1) y) #\<)
+             (quadro-set! quadro x y #\.)
+             (endpoint (- x 2) y))
             (else (error "Syntax error"))))
 
     (define (traverse-up x y)
@@ -283,7 +307,11 @@
     (define (parse-sexp s i)
       (cond ((char=? (string-ref s i) #\()
              (let ((res2 (parse-sexp-list s (skip-space s (+ i 1)))))
-               (list (+ (car res2) 1) (cadr res2))))
+               (list (skip-space s (car res2)) (cadr res2))))
+            ((and (< (+ i 1) (string-length s))
+                  (string=? (substring s i (+ i 2)) "#("))
+             (let ((res2 (parse-sexp-vector s (skip-space s (+ i 2)))))
+               (list (skip-space s (+ (car res2) 1)) (list->vector (cadr res2)))))
             (else (or (get-number s i)
                       (get-string s i)
                       (get-char s i)
@@ -299,10 +327,20 @@
                     (char=? (string-ref s j) #\.)
                     (char=? (string-ref s (+ j 1)) #\space))
                (let ((res2 (parse-sexp s (+ j 2))))
-                 (list (+ (car res2) 1) (cons (cadr res1) (cadr res2)))))
+                 (list (car res2) (cons (cadr res1) (cadr res2)))))
               (else
                (let ((res2 (parse-sexp-list s j)))
-                 (list (+ (car res2) 1) (cons (cadr res1) (cadr res2))))))))
+                 (list (car res2) (cons (cadr res1) (cadr res2))))))))
+
+    (define (parse-sexp-vector s i)
+      (let* ((res1 (parse-sexp s i))
+             (j (skip-space s (car res1))))
+        (if (>= j (string-length s)) (error "Invalid expression"))
+        (cond ((char=? (string-ref s j) #\))
+               (list (+ j 1) (cons (cadr res1) '())))
+              (else
+               (let ((res2 (parse-sexp-list s j)))
+                 (list (car res2) (cons (cadr res1) (cadr res2))))))))
 
     (define (skip-space s i)
       (let loop ((j i))
@@ -330,11 +368,20 @@
           #f))
 
     (define (get-char s i)
-      (cond ((string=? s "#t") (list (+ i 2) #t))
-            ((string=? s "#f") (list (+ i 2) #f))
-            ((string=? s "#\\space") (list (+ i 7) #\space))
-            ((string=? s "#\\newline") (list (+ i 9) #\newline))
-            ((and (= (string-length s) 3) (string=? (substring s 0 2) "#\\"))
+      (cond ((and (< (+ i 2) (string-length s))
+                  (string=? (substring s i (+ i 2)) "#t"))
+             (list (+ i 2) #t))
+            ((and (< (+ i 2) (string-length s))
+                  (string=? (substring s i (+ i 2)) "#f"))
+             (list (+ i 2) #f))
+            ((and (< (+ i 7) (string-length s))
+                  (string=? (substring s i (+ i 7)) "#\\space"))
+             (list (+ i 2) #\space))
+            ((and (< (+ i 9) (string-length s))
+                  (string=? (substring s i (+ i 9)) "#\\newline"))
+             (list (+ i 2) #\newline))
+            ((and (< (+ i 3) (string-length s))
+                  (string=? (substring s i (+ i 2)) "#\\"))
              (list (+ i 3) (string-ref s 2)))
             (else #f)))
 
@@ -346,7 +393,7 @@
                 (char=? (string-ref s j) #\())
             (let ((num (string->number (substring s i j))))
               (if num
-                  (list (+ j 1) num)
+                  (list j num)
                   #f))
             (loop (+ j 1)))))
 
@@ -356,7 +403,7 @@
                 (char=? (string-ref s j) #\space)
                 (char=? (string-ref s j) #\))
                 (char=? (string-ref s j) #\())
-            (list (+ j 1) (string->symbol (substring s i j)))
+            (list j (string->symbol (substring s i j)))
             (loop (+ j 1)))))
 
     (let loop ((cells conscells))
@@ -433,17 +480,17 @@
 (define test1
   (string-append
     "  +-+-+             \n"
-    " >|*|*-----+        \n"
-    "  +|+-+    |        \n"
-    "   |       |        \n"
-    "   v       |  +-+-+ \n"
-    "  +-+-+    +->|/|/| \n"
+    " >|*|*------+       \n"
+    "  +|+-+     |       \n"
+    "   |        |       \n"
+    "   v        | +-+-+ \n"
+    "  +-+-+     +>|/|/| \n"
     "  |*|/|       +-+-+ \n"
     "  +|+-+             \n"
     "   |                \n"
     "   |                \n"
     "   v                \n"
-    " (1 23 aaa))        \n"
+    " (1 23 aaa)         \n"
     "                    \n"
     "                    \n"
     "                    \n"
@@ -473,4 +520,25 @@
    ""))
 
 (define x2 (aexp test2))
+
+(define test3
+  (string-append
+    "  +-+-+             \n"
+    " >|*|*-----+  +-+-+ \n"
+    "  +|+-+    +->|/|/| \n"
+    "   |          +-+-+ \n"
+    "   v                \n"
+    "  +-+-+             \n"
+    "  |*|/|             \n"
+    "  +|+-+             \n"
+    "   |                \n"
+    "   |                \n"
+    "   v                \n"
+    " #(1 23 aaa)        \n"
+    "                    \n"
+    "                    \n"
+    "                    \n"
+    ""))
+
+(define x3 (aexp test3))
 
