@@ -18,6 +18,20 @@
                     (skipBlank && node.nodeType === TEXT_NODE && /[ \t\n]+/.test(node.nodeValue)));
         }
 
+        function typeNode(typeNo) {
+            return function(valid, node, attr) {
+                if(!valid || node.nodeType !== typeNo) {
+                    return null;
+                } else {
+                    return {
+                        valid: true,
+                        node, node,
+                        attr: attr
+                    };
+                }
+            };
+        }
+
         me = {
             nextSibling: function() {
                 return function(valid, node, attr) {
@@ -114,6 +128,32 @@
                             }
                         }
                     }
+                };
+            },
+
+            typeText: function() {
+                return typeNode(TEXT_NODE);
+            },
+
+            typeCdata: function() {
+                return typeNode(CDATA_SECTION_NODE);
+            },
+
+            typeElement: function() {
+                return typeNode(ELEMENT_NODE);
+            },
+
+            typeComment: function() {
+                return typeNode(COMMENT_NODE);
+            },
+
+            alwaysTrue: function() {
+                return function(valid, node, attr) {
+                    return {
+                        valid: valid,
+                        node: node,
+                        attr: attr
+                    };
                 };
             },
 
