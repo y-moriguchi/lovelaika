@@ -84,21 +84,25 @@
             result = {},
             horizontal = quadro.getHorizontalStrings(),
             vertical = quadro.getVerticalStrings(),
-            hPattern = /([\+<])([\-\+_]*)([\+>])/g,
-            vPattern = /([\+\^])([\|\+:]*)([\+v])/g;
+            matched,
+            matchedText,
+            hPattern = /([\+<])(([\-\|\+]|"([^"]*)\")*)([\+>])/g,
+            vPattern = /([\+\^])([\-\|\+:\*]*)([\+v])/g,
+            textPattern = /"([^"]*)"/;
 
         result.horizontalLines = [];
         result.verticalLines = [];
 
         for(i = 0; i < horizontal.length; i++) {
             while(!!(matched = hPattern.exec(horizontal[i]))) {
+                matchedText = textPattern.exec(matched[2]);
                 result.horizontalLines.push({
                     x1: matched.index,
                     x2: hPattern.lastIndex - 1,
                     y: i,
                     leftArrow: matched[1] === "<",
-                    rightArrow: matched[3] === ">",
-                    dashed: /_/.test(matched[2])
+                    rightArrow: matched[5] === ">",
+                    text: matchedText ? matchedText[1] : false
                 });
                 hPattern.lastIndex--;
             }
@@ -112,7 +116,8 @@
                     x: i,
                     upArrow: matched[1] === "^",
                     downArrow: matched[3] === "v",
-                    dashed: /:/.test(matched[2])
+                    dashed: /:/.test(matched[2]),
+                    nobox: /\*/.test(matched[2])
                 });
                 vPattern.lastIndex--;
             }
@@ -128,7 +133,8 @@
             j,
             horizontalPair = [],
             verticalPair = [],
-            texts;
+            texts,
+            nobox;
 
         function getText(x1, y1, x2, y2) {
             var i,
@@ -148,25 +154,21 @@
 
         parsed.boxes = [];
         for(i = 0; i < parsed.horizontalLines.length; i++) {
-            for(j = 0; j < parsed.horizontalLines.length; j++) {
-                if(i !== j) {
-                    if(parsed.horizontalLines[i].x1 === parsed.horizontalLines[j].x1 &&
-                            parsed.horizontalLines[i].x2 === parsed.horizontalLines[j].x2) {
-                        horizontalPair.push({ i: i, j: j });
-                        break;
-                    }
+            for(j = i + 1; j < parsed.horizontalLines.length; j++) {
+                if(parsed.horizontalLines[i].x1 === parsed.horizontalLines[j].x1 &&
+                        parsed.horizontalLines[i].x2 === parsed.horizontalLines[j].x2) {
+                    horizontalPair.push({ i: i, j: j });
+                    break;
                 }
             }
         }
 
         for(i = 0; i < parsed.verticalLines.length; i++) {
-            for(j = 0; j < parsed.verticalLines.length; j++) {
-                if(i !== j) {
-                    if(parsed.verticalLines[i].y1 === parsed.verticalLines[j].y1 &&
-                            parsed.verticalLines[i].y2 === parsed.verticalLines[j].y2) {
-                        verticalPair.push({ i: i, j: j });
-                        break;
-                    }
+            for(j = i + 1; j < parsed.verticalLines.length; j++) {
+                if(parsed.verticalLines[i].y1 === parsed.verticalLines[j].y1 &&
+                        parsed.verticalLines[i].y2 === parsed.verticalLines[j].y2) {
+                    verticalPair.push({ i: i, j: j });
+                    break;
                 }
             }
         }
@@ -174,8 +176,12 @@
         for(i = 0; i < horizontalPair.length; i++) {
             for(j = 0; j < verticalPair.length; j++) {
                 if(!parsed.horizontalLines[horizontalPair[i].i].box &&
+                        !parsed.horizontalLines[horizontalPair[i].j].box &&
+                        !parsed.verticalLines[verticalPair[j].i].box &&
+                        !parsed.verticalLines[verticalPair[j].j].box &&
                         parsed.horizontalLines[horizontalPair[i].i].y === parsed.verticalLines[verticalPair[j].i].y1 &&
                         parsed.horizontalLines[horizontalPair[i].j].y === parsed.verticalLines[verticalPair[j].i].y2) {
+                    nobox = parsed.verticalLines[verticalPair[j].i].nobox || parsed.verticalLines[verticalPair[j].j].nobox;
                     texts = getText(
                         parsed.horizontalLines[horizontalPair[i].i].x1,
                         parsed.verticalLines[verticalPair[j].i].y1,
@@ -186,7 +192,8 @@
                         x2: parsed.horizontalLines[horizontalPair[i].i].x2,
                         y1: parsed.verticalLines[verticalPair[j].i].y1,
                         y2: parsed.verticalLines[verticalPair[j].i].y2,
-                        texts: texts
+                        texts: texts,
+                        nobox: nobox
                     });
                     parsed.horizontalLines[horizontalPair[i].i].box = true;
                     parsed.horizontalLines[horizontalPair[i].j].box = true;
@@ -262,10 +269,12 @@
             style;
 
         for(i = 0; i < input.boxes.length; i++) {
-            elements.push(rect(optborder + input.boxes[i].x1 * optsizex,
-                optborder + input.boxes[i].y1 * optsizey,
-                (input.boxes[i].x2 - input.boxes[i].x1) * optsizex,
-                (input.boxes[i].y2 - input.boxes[i].y1) * optsizey));
+            if(!input.boxes[i].nobox) {
+                elements.push(rect(optborder + input.boxes[i].x1 * optsizex,
+                    optborder + input.boxes[i].y1 * optsizey,
+                    (input.boxes[i].x2 - input.boxes[i].x1) * optsizex,
+                    (input.boxes[i].y2 - input.boxes[i].y1) * optsizey));
+            }
             for(j = 0; j < input.boxes[i].texts.length; j++) {
                 elements.push(text(optborder + (input.boxes[i].x1 + 0.5) * optsizex,
                     optborder + (input.boxes[i].y1 + 1 + j) * optsizey,
@@ -296,6 +305,14 @@
                     style = "";
                 }
                 elements.push(line(optx1, opty1, optx2, opty1, style));
+                if(input.horizontalLines[i].text) {
+                    elements.push(text(optborder + (input.horizontalLines[i].x1 +
+                            (input.horizontalLines[i].x2 - input.horizontalLines[i].x1) / 2) * optsizex,
+                        optborder + (input.horizontalLines[i].y - 1) * optsizey,
+                        optsizex,
+                        optfont,
+                        input.horizontalLines[i].text));
+                }
             }
         }
 
