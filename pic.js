@@ -73,6 +73,14 @@
 
             getXY: function(x, y) {
                 return cellMatrix[y][x].ch;
+            },
+
+            getProperty: function(x, y, name) {
+                return cellMatrix[y][x][name];
+            },
+
+            setProperty: function(x, y, name, value) {
+                cellMatrix[y][x][name] = value;
             }
         };
         return me;
@@ -104,6 +112,10 @@
                     rightArrow: matched[5] === ">",
                     text: matchedText ? matchedText[1] : false
                 });
+
+                for(j = matched.index; j < hPattern.lastIndex; j++) {
+                    quadro.setProperty(j, i, "hline", true);
+                }
                 hPattern.lastIndex--;
             }
         }
@@ -119,6 +131,10 @@
                     dashed: /:/.test(matched[2]),
                     nobox: /\*/.test(matched[2])
                 });
+
+                for(j = matched.index; j < vPattern.lastIndex; j++) {
+                    quadro.setProperty(i, j, "vline", true);
+                }
                 vPattern.lastIndex--;
             }
         }
@@ -139,13 +155,22 @@
         function getText(x1, y1, x2, y2) {
             var i,
                 j,
+                inLine,
                 text1,
                 result = [];
 
             for(i = y1 + 1; i < y2; i++) {
                 text1 = "";
+                inLine = false;
                 for(j = x1 + 1; j < x2; j++) {
-                    text1 += quadro.getXY(j, i);
+                    if(!inLine && quadro.getProperty(j, i, "vline")) {
+                        inLine = true;
+                    } else if(inLine && quadro.getProperty(j, i, "vline")) {
+                        inLine = false;
+                    }
+                    if(!inLine && !quadro.getProperty(j, i, "hline") && !quadro.getProperty(j, i, "vline")) {
+                        text1 += quadro.getXY(j, i);
+                    }
                 }
                 result.push(text1.trim());
             }
