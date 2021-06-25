@@ -94,7 +94,8 @@
             vertical = quadro.getVerticalStrings(),
             matched,
             matchedText,
-            hPattern = /([\+<])(([\-\|\+]|"([^"]*)\")*)([\+>])/g,
+            exceptText,
+            hPattern = /([\+<])(([\-\|\+=]|"([^"]*)\")*)([\+>])/g,
             vPattern = /([\+\^])([\-\|\+:\*]*)([\+v])/g,
             textPattern = /"([^"]*)"/;
 
@@ -104,13 +105,15 @@
         for(i = 0; i < horizontal.length; i++) {
             while(!!(matched = hPattern.exec(horizontal[i]))) {
                 matchedText = textPattern.exec(matched[2]);
+                exceptText = matched[2].replace(textPattern, "");
                 result.horizontalLines.push({
                     x1: matched.index,
                     x2: hPattern.lastIndex - 1,
                     y: i,
                     leftArrow: matched[1] === "<",
                     rightArrow: matched[5] === ">",
-                    text: matchedText ? matchedText[1] : false
+                    text: matchedText ? matchedText[1] : false,
+                    dashed: /=/.test(exceptText)
                 });
 
                 for(j = matched.index; j < hPattern.lastIndex; j++) {
